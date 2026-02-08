@@ -1,6 +1,6 @@
 services:
   traefik:
-    image: traefik:v3.4
+    image: traefik:v3.6
     container_name: claudex-traefik
     restart: always
     command:
@@ -241,3 +241,4 @@ volumes:
     driver: local
   storage_data:
     driver: local
+
