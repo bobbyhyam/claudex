@@ -7,6 +7,7 @@ interface MessageContentProps {
   content: string;
   isBot: boolean;
   attachments?: MessageAttachment[];
+  uploadingAttachmentIds?: string[];
   isStreaming: boolean;
   chatId?: string;
   isLastBotMessage?: boolean;
@@ -18,6 +19,7 @@ export const MessageContent = memo(
     content,
     isBot,
     attachments,
+    uploadingAttachmentIds,
     isStreaming,
     chatId,
     isLastBotMessage,
@@ -25,8 +27,11 @@ export const MessageContent = memo(
   }: MessageContentProps) => {
     if (!isBot) {
       return (
-        <div className="space-y-4">
-          <MessageAttachments attachments={attachments} />
+        <div className="space-y-1">
+          <MessageAttachments
+            attachments={attachments}
+            uploadingAttachmentIds={uploadingAttachmentIds}
+          />
           <MessageRenderer content={content} isStreaming={isStreaming} chatId={chatId} />
         </div>
       );

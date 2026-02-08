@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import { QueryClient } from '@tanstack/react-query';
-import { useReviewStore } from '@/store';
 import { appendEventToLog } from '@/utils/stream';
 import { playNotificationSound } from '@/utils/audio';
 import { queryKeys, useSettingsQuery } from '@/hooks/queries';
@@ -30,6 +29,7 @@ interface UseStreamCallbacksParams {
   setCurrentMessageId: Dispatch<SetStateAction<string | null>>;
   setError: Dispatch<SetStateAction<Error | null>>;
   pendingStopRef: React.MutableRefObject<Set<string>>;
+  onPendingUserMessageIdChange?: (id: string | null) => void;
 }
 
 interface UseStreamCallbacksResult {
@@ -43,8 +43,6 @@ interface UseStreamCallbacksResult {
   updateMessageInCache: ReturnType<typeof useMessageCache>['updateMessageInCache'];
   addMessageToCache: ReturnType<typeof useMessageCache>['addMessageToCache'];
   removeMessagesFromCache: ReturnType<typeof useMessageCache>['removeMessagesFromCache'];
-  getReviewsForChat: ReturnType<typeof useReviewStore.getState>['getReviewsForChat'];
-  clearReviewsForChat: ReturnType<typeof useReviewStore.getState>['clearReviewsForChat'];
   setPendingUserMessageId: (id: string | null) => void;
 }
 
@@ -60,6 +58,7 @@ export function useStreamCallbacks({
   setCurrentMessageId,
   setError,
   pendingStopRef,
+  onPendingUserMessageIdChange,
 }: UseStreamCallbacksParams): UseStreamCallbacksResult {
   const optionsRef = useRef<{
     chatId: string;
@@ -75,6 +74,7 @@ export function useStreamCallbacks({
   useEffect(() => {
     return () => {
       timerIdsRef.current.forEach(clearTimeout);
+      timerIdsRef.current = [];
     };
   }, []);
 
@@ -82,18 +82,24 @@ export function useStreamCallbacks({
     chatId,
     queryClient,
   });
-  const getReviewsForChat = useReviewStore((state) => state.getReviewsForChat);
-  const clearReviewsForChat = useReviewStore((state) => state.clearReviewsForChat);
   const { data: settings } = useSettingsQuery();
 
-  const setPendingUserMessageId = useCallback((id: string | null) => {
-    pendingUserMessageIdRef.current = id;
-  }, []);
+  const setPendingUserMessageId = useCallback(
+    (id: string | null) => {
+      pendingUserMessageIdRef.current = id;
+      onPendingUserMessageIdChange?.(id);
+    },
+    [onPendingUserMessageIdChange],
+  );
 
   const onChunk = useCallback(
     (event: AssistantStreamEvent, messageId: string) => {
       if (pendingStopRef.current.has(messageId)) {
         return;
+      }
+
+      if (pendingUserMessageIdRef.current) {
+        setPendingUserMessageId(null);
       }
 
       if (event.type === 'permission_request' && onPermissionRequest) {
@@ -123,10 +129,18 @@ export function useStreamCallbacks({
         content: appendEventToLog(cachedMsg.content, event),
       }));
     },
-    [updateMessageInCache, onPermissionRequest, onContextUsageUpdate, setMessages, pendingStopRef],
+    [
+      updateMessageInCache,
+      onPermissionRequest,
+      onContextUsageUpdate,
+      setMessages,
+      pendingStopRef,
+      setPendingUserMessageId,
+    ],
   );
 
   const onComplete = useCallback(() => {
+    setPendingUserMessageId(null);
     setStreamState('idle');
     setCurrentMessageId(null);
 
@@ -165,6 +179,7 @@ export function useStreamCallbacks({
     setStreamState,
     setCurrentMessageId,
     settings?.notification_sound_enabled,
+    setPendingUserMessageId,
   ]);
 
   const onError = useCallback(
@@ -189,9 +204,16 @@ export function useStreamCallbacks({
         removeMessagesFromCache(messageIdsToRemove);
       }
 
-      pendingUserMessageIdRef.current = null;
+      setPendingUserMessageId(null);
     },
-    [setError, setStreamState, setCurrentMessageId, setMessages, removeMessagesFromCache],
+    [
+      setError,
+      setStreamState,
+      setCurrentMessageId,
+      setMessages,
+      removeMessagesFromCache,
+      setPendingUserMessageId,
+    ],
   );
 
   const onQueueProcess = useCallback(
@@ -284,8 +306,6 @@ export function useStreamCallbacks({
     updateMessageInCache,
     addMessageToCache,
     removeMessagesFromCache,
-    getReviewsForChat,
-    clearReviewsForChat,
     setPendingUserMessageId,
   };
 }

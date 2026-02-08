@@ -147,7 +147,6 @@ def create_application() -> FastAPI:
         prefix=f"{settings.API_V1_STR}/integrations",
         tags=["Integrations"],
     )
-
     application.openapi = lambda: custom_openapi(application)
 
     admin = create_admin(application, engine, SessionLocal)

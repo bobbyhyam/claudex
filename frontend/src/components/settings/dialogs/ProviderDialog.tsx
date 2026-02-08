@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { Button, Input, Label, Switch, Select } from '@/components/ui';
 import { BaseModal } from '@/components/ui/shared/BaseModal';
 import { SecretInput } from '../inputs/SecretInput';
-import { CodexAuthUpload } from '../inputs/CodexAuthUpload';
+import { OpenAIAuthButton } from '../inputs/OpenAIAuthButton';
+import { CopilotAuthButton } from '../inputs/CopilotAuthButton';
 import { ModelListEditor } from '../inputs/ModelListEditor';
 import type {
   CustomProvider,
@@ -60,10 +61,23 @@ const DEFAULT_OPENAI_PROVIDER: Omit<CustomProvider, 'id' | 'auth_token'> = {
   ],
 };
 
+const DEFAULT_COPILOT_PROVIDER: Omit<CustomProvider, 'id' | 'auth_token'> = {
+  name: 'GitHub Copilot',
+  provider_type: 'copilot',
+  base_url: null,
+  enabled: true,
+  models: [
+    { model_id: 'gpt-5.2-codex', name: 'Codex 5.2', enabled: true },
+    { model_id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro', enabled: true },
+    { model_id: 'claude-opus-4.6', name: 'Claude Opus 4.6', enabled: true },
+  ],
+};
+
 const PROVIDER_TYPE_OPTIONS = [
   { value: 'anthropic', label: 'Anthropic' },
   { value: 'openrouter', label: 'OpenRouter' },
   { value: 'openai', label: 'OpenAI' },
+  { value: 'copilot', label: 'GitHub Copilot' },
   { value: 'custom', label: 'Custom' },
 ];
 
@@ -86,6 +100,8 @@ const createProviderFromType = (providerType: ProviderType): CustomProvider => {
       return { ...DEFAULT_OPENROUTER_PROVIDER, id, auth_token: '' };
     case 'openai':
       return { ...DEFAULT_OPENAI_PROVIDER, id, auth_token: '' };
+    case 'copilot':
+      return { ...DEFAULT_COPILOT_PROVIDER, id, auth_token: '' };
     default:
       return createEmptyProvider();
   }
@@ -121,12 +137,22 @@ const getAuthTokenConfig = (
       };
     case 'openai':
       return {
-        label: 'Auth (Optional)',
-        placeholder: 'Uses ~/.codex/auth.json from codex login',
+        label: 'OpenAI Authentication',
+        placeholder: '',
         helperText: {
-          prefix: 'Run',
-          code: 'codex login',
-          suffix: 'in terminal to authenticate with ChatGPT',
+          prefix: 'Requires a',
+          anchorText: 'ChatGPT Pro/Plus subscription',
+          href: 'https://openai.com',
+        },
+      };
+    case 'copilot':
+      return {
+        label: 'GitHub Authentication',
+        placeholder: '',
+        helperText: {
+          prefix: 'Requires a',
+          anchorText: 'GitHub Copilot subscription',
+          href: 'https://github.com/features/copilot',
         },
       };
     case 'custom':
@@ -179,7 +205,7 @@ export const ProviderDialog: React.FC<ProviderDialogProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const builtInTypes = ['anthropic', 'openrouter', 'openai'];
+    const builtInTypes = ['anthropic', 'openrouter', 'openai', 'copilot'];
     if (builtInTypes.includes(form.provider_type) && !form.auth_token) {
       setLocalError('Authentication is required for this provider type.');
       return;
@@ -195,7 +221,8 @@ export const ProviderDialog: React.FC<ProviderDialogProps> = ({
   const isBuiltIn =
     form.provider_type === 'anthropic' ||
     form.provider_type === 'openrouter' ||
-    form.provider_type === 'openai';
+    form.provider_type === 'openai' ||
+    form.provider_type === 'copilot';
   const showBaseUrl = !isBuiltIn;
   const authConfig = getAuthTokenConfig(form.provider_type);
   const errorMessage = localError ?? error;
@@ -209,33 +236,32 @@ export const ProviderDialog: React.FC<ProviderDialogProps> = ({
         return 'Add OpenRouter Provider';
       case 'openai':
         return 'Add OpenAI Provider';
+      case 'copilot':
+        return 'Add GitHub Copilot Provider';
       default:
         return 'Add Custom Provider';
     }
   };
 
   return (
-    <BaseModal
-      isOpen={isOpen}
-      onClose={onClose}
-      size="lg"
-      className="max-h-[90vh] overflow-y-auto shadow-strong"
-    >
-      <div className="p-6">
-        <h3 className="mb-4 text-lg font-semibold text-text-primary dark:text-text-dark-primary">
+    <BaseModal isOpen={isOpen} onClose={onClose} size="lg" className="max-h-[90vh] overflow-y-auto">
+      <div className="p-5">
+        <h3 className="mb-5 text-sm font-medium text-text-primary dark:text-text-dark-primary">
           {getDialogTitle()}
         </h3>
 
         {errorMessage && (
-          <div className="mb-4 rounded-md border border-error-200 bg-error-50 p-3 dark:border-error-800 dark:bg-error-900/20">
-            <p className="text-xs text-error-700 dark:text-error-400">{errorMessage}</p>
+          <div className="mb-4 rounded-xl border border-border p-3 dark:border-border-dark">
+            <p className="text-xs text-text-secondary dark:text-text-dark-secondary">
+              {errorMessage}
+            </p>
           </div>
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {!isEditing && (
             <div>
-              <Label className="mb-1.5 text-sm text-text-primary dark:text-text-dark-primary">
+              <Label className="mb-1.5 text-xs text-text-secondary dark:text-text-dark-secondary">
                 Provider Type
               </Label>
               <Select
@@ -248,42 +274,44 @@ export const ProviderDialog: React.FC<ProviderDialogProps> = ({
                   </option>
                 ))}
               </Select>
-              <p className="mt-1 text-xs text-text-tertiary dark:text-text-dark-tertiary">
+              <p className="mt-1 text-2xs text-text-quaternary dark:text-text-dark-quaternary">
                 {selectedProviderType === 'custom'
                   ? 'Configure a custom Anthropic-compatible API provider'
                   : selectedProviderType === 'openai'
                     ? 'Use OpenAI models with your ChatGPT subscription'
-                    : `Pre-configured with default ${selectedProviderType === 'anthropic' ? 'Claude' : 'OpenRouter'} models`}
+                    : selectedProviderType === 'copilot'
+                      ? 'Use AI models with your GitHub Copilot subscription'
+                      : `Pre-configured with default ${selectedProviderType === 'anthropic' ? 'Claude' : 'OpenRouter'} models`}
               </p>
             </div>
           )}
 
           <div>
-            <Label className="mb-1.5 text-sm text-text-primary dark:text-text-dark-primary">
+            <Label className="mb-1.5 text-xs text-text-secondary dark:text-text-dark-secondary">
               Provider Name
             </Label>
             <Input
               value={form.name}
               onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
               placeholder={isEditing ? undefined : 'e.g., DeepSeek, Local Ollama'}
-              className="text-sm"
+              className="text-xs"
               required
             />
           </div>
 
           {showBaseUrl && (
             <div>
-              <Label className="mb-1.5 text-sm text-text-primary dark:text-text-dark-primary">
+              <Label className="mb-1.5 text-xs text-text-secondary dark:text-text-dark-secondary">
                 Base URL
               </Label>
               <Input
                 value={form.base_url || ''}
                 onChange={(e) => setForm((prev) => ({ ...prev, base_url: e.target.value }))}
                 placeholder="https://api.example.com/v1"
-                className="font-mono text-sm"
+                className="font-mono text-xs"
                 required
               />
-              <p className="mt-1 text-xs text-text-tertiary dark:text-text-dark-tertiary">
+              <p className="mt-1 text-2xs text-text-quaternary dark:text-text-dark-quaternary">
                 The base URL for the Anthropic-compatible API endpoint
               </p>
             </div>
@@ -291,31 +319,33 @@ export const ProviderDialog: React.FC<ProviderDialogProps> = ({
 
           {form.provider_type === 'openai' ? (
             <div>
-              <Label className="mb-1.5 text-sm text-text-primary dark:text-text-dark-primary">
-                Codex Authentication
+              <Label className="mb-1.5 text-xs text-text-secondary dark:text-text-dark-secondary">
+                OpenAI Authentication
               </Label>
-              <p className="mb-2 text-xs text-text-tertiary dark:text-text-dark-tertiary">
-                Upload your auth.json from{' '}
-                <code className="rounded bg-surface-tertiary px-1 dark:bg-surface-dark-tertiary">
-                  ~/.codex/auth.json
-                </code>{' '}
-                or run{' '}
-                <code className="rounded bg-surface-tertiary px-1 dark:bg-surface-dark-tertiary">
-                  codex login
-                </code>{' '}
-                in terminal. Required.
-              </p>
-              <CodexAuthUpload
+              <OpenAIAuthButton
                 value={form.auth_token || null}
-                onChange={(content) => {
-                  setForm((prev) => ({ ...prev, auth_token: content || '' }));
+                onChange={(token) => {
+                  setForm((prev) => ({ ...prev, auth_token: token || '' }));
+                  setLocalError(null);
+                }}
+              />
+            </div>
+          ) : form.provider_type === 'copilot' ? (
+            <div>
+              <Label className="mb-1.5 text-xs text-text-secondary dark:text-text-dark-secondary">
+                GitHub Copilot Authentication
+              </Label>
+              <CopilotAuthButton
+                value={form.auth_token || null}
+                onChange={(token) => {
+                  setForm((prev) => ({ ...prev, auth_token: token || '' }));
                   setLocalError(null);
                 }}
               />
             </div>
           ) : (
             <div>
-              <Label className="mb-1.5 text-sm text-text-primary dark:text-text-dark-primary">
+              <Label className="mb-1.5 text-xs text-text-secondary dark:text-text-dark-secondary">
                 {authConfig.label}
               </Label>
               <SecretInput
@@ -332,13 +362,13 @@ export const ProviderDialog: React.FC<ProviderDialogProps> = ({
 
           <ModelListEditor models={form.models} onChange={handleModelsChange} />
 
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between rounded-xl border border-border px-3.5 py-3 dark:border-border-dark">
             <div>
-              <Label className="text-sm text-text-primary dark:text-text-dark-primary">
+              <span className="text-xs text-text-primary dark:text-text-dark-primary">
                 Enable Provider
-              </Label>
-              <p className="mt-0.5 text-xs text-text-tertiary dark:text-text-dark-tertiary">
-                Provider models will only be available when enabled
+              </span>
+              <p className="mt-0.5 text-2xs text-text-quaternary dark:text-text-dark-quaternary">
+                Models will only be available when enabled
               </p>
             </div>
             <Switch
@@ -349,11 +379,16 @@ export const ProviderDialog: React.FC<ProviderDialogProps> = ({
             />
           </div>
 
-          <div className="flex justify-end gap-2 pt-2">
+          <div className="flex justify-end gap-2 pt-1">
             <Button type="button" onClick={onClose} variant="outline" size="sm">
               Cancel
             </Button>
-            <Button type="submit" variant="primary" size="sm">
+            <Button
+              type="submit"
+              variant="outline"
+              size="sm"
+              className="border-text-primary bg-text-primary text-surface hover:bg-text-secondary dark:border-text-dark-primary dark:bg-text-dark-primary dark:text-surface-dark dark:hover:bg-text-dark-secondary"
+            >
               {isEditing ? 'Save Changes' : 'Add Provider'}
             </Button>
           </div>

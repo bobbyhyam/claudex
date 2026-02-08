@@ -1,14 +1,96 @@
 import { memo, useState, useCallback, useRef, useEffect } from 'react';
-import { Clock, X, Pencil, Check, FileText, FileSpreadsheet } from 'lucide-react';
-import { UserAvatar } from './MessageAvatars';
-import { Button } from '@/components/ui';
-import { authService } from '@/services/authService';
+import { X, Pencil, Check, FileText, FileSpreadsheet } from 'lucide-react';
+import { Button, Spinner } from '@/components/ui';
+import { apiClient } from '@/lib/api';
+import { detectFileType } from '@/utils/fileTypes';
+import { fetchAttachmentBlob } from '@/utils/file';
+import { isBrowserObjectUrl } from '@/utils/attachmentUrl';
 import type { LocalQueuedMessage, MessageAttachment as QueueAttachment } from '@/types/queue.types';
 
 interface PendingMessageProps {
   message: LocalQueuedMessage;
   onCancel: () => void;
   onEdit: (newContent: string) => void;
+}
+
+function UploadingOverlay() {
+  return (
+    <div className="pointer-events-none absolute inset-0 rounded-lg bg-black/35">
+      <div className="absolute inset-0 flex items-center justify-center">
+        <Spinner size="xs" className="text-white" />
+      </div>
+    </div>
+  );
+}
+
+function LocalUploadingPreview({ file }: { file: File }) {
+  const [imageSrc, setImageSrc] = useState<string | null>(null);
+  const [fileType, setFileType] = useState<'image' | 'pdf' | 'xlsx' | 'unknown'>('unknown');
+
+  useEffect(() => {
+    let objectUrl: string | null = null;
+
+    try {
+      const detectedType = detectFileType(file.name, file.type);
+      setFileType(detectedType);
+
+      if (detectedType === 'image') {
+        objectUrl = URL.createObjectURL(file);
+        setImageSrc(objectUrl);
+      }
+    } catch {
+      setFileType('unknown');
+    }
+
+    return () => {
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [file]);
+
+  if (fileType === 'image' && imageSrc) {
+    return (
+      <div className="relative h-14 w-14 rounded-lg">
+        <img
+          src={imageSrc}
+          alt={file.name || 'Attachment'}
+          className="h-14 w-14 rounded-lg object-cover"
+        />
+        <UploadingOverlay />
+      </div>
+    );
+  }
+
+  if (fileType === 'xlsx') {
+    return (
+      <div className="relative flex h-14 w-14 flex-col items-center justify-center rounded-lg bg-surface-secondary dark:bg-surface-dark-secondary">
+        <FileSpreadsheet className="h-6 w-6 text-success-600 dark:text-success-400" />
+        <span className="mt-0.5 text-2xs text-text-tertiary dark:text-text-dark-tertiary">
+          Excel
+        </span>
+        <UploadingOverlay />
+      </div>
+    );
+  }
+
+  if (fileType === 'pdf') {
+    return (
+      <div className="relative flex h-14 w-14 flex-col items-center justify-center rounded-lg bg-surface-secondary dark:bg-surface-dark-secondary">
+        <FileText className="h-6 w-6 text-error-500 dark:text-error-400" />
+        <span className="mt-0.5 text-2xs text-text-tertiary dark:text-text-dark-tertiary">PDF</span>
+        <UploadingOverlay />
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative flex h-14 w-14 flex-col items-center justify-center rounded-lg bg-surface-secondary dark:bg-surface-dark-secondary">
+      <FileText className="h-6 w-6 text-text-tertiary dark:text-text-dark-tertiary" />
+      <span className="mt-0.5 text-2xs text-text-tertiary dark:text-text-dark-tertiary">File</span>
+      <UploadingOverlay />
+    </div>
+  );
 }
 
 function AuthenticatedPreview({ attachment }: { attachment: QueueAttachment }) {
@@ -22,15 +104,14 @@ function AuthenticatedPreview({ attachment }: { attachment: QueueAttachment }) {
 
     async function loadImage() {
       try {
-        const token = authService.getToken();
-        const response = await fetch(attachment.file_url, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        });
+        if (isBrowserObjectUrl(attachment.file_url)) {
+          setImageSrc(attachment.file_url);
+          setIsLoading(false);
+          return;
+        }
 
-        if (!response.ok) throw new Error('Failed to load');
+        const blob = await fetchAttachmentBlob(attachment.file_url, apiClient);
         if (cancelled) return;
-
-        const blob = await response.blob();
         objectUrl = URL.createObjectURL(blob);
         setImageSrc(objectUrl);
         setIsLoading(false);
@@ -111,14 +192,12 @@ export const PendingMessage = memo(function PendingMessage({
   const hasLocalFiles = message.files && message.files.length > 0;
   const hasServerAttachments = message.attachments && message.attachments.length > 0;
 
-  const isUploadingFiles = hasLocalFiles && !hasServerAttachments;
-
   useEffect(() => {
     if (isEditing && textareaRef.current) {
       textareaRef.current.focus();
       textareaRef.current.setSelectionRange(editContent.length, editContent.length);
     }
-  }, [isEditing]);
+  }, [isEditing, editContent.length]);
 
   const handleStartEdit = useCallback(() => {
     setEditContent(message.content);
@@ -153,50 +232,17 @@ export const PendingMessage = memo(function PendingMessage({
   );
 
   return (
-    <div className="group rounded-lg px-4 py-2 opacity-60 transition-opacity hover:opacity-80 sm:rounded-2xl sm:px-6 sm:py-3">
-      <div className="space-y-1">
-        <div className="flex items-center gap-3 sm:gap-4">
-          <div className="flex-shrink-0">
-            <UserAvatar />
-          </div>
-          <div className="flex flex-1 flex-wrap items-center gap-2 text-xs sm:gap-3">
-            <span className="font-medium text-text-secondary dark:text-text-dark-tertiary">
-              You
-            </span>
-            <span className="text-text-quaternary dark:text-text-dark-quaternary">•</span>
-            <span className="flex items-center gap-1 text-text-tertiary dark:text-text-dark-tertiary">
-              <Clock className="h-3 w-3" />
-              Pending...
-            </span>
-          </div>
-          <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-            {!isEditing && (
-              <>
-                <Button
-                  onClick={handleStartEdit}
-                  variant="unstyled"
-                  className="rounded-lg p-2 text-text-secondary hover:bg-surface-hover hover:text-text-primary dark:text-text-dark-secondary dark:hover:bg-surface-dark-hover dark:hover:text-text-dark-primary"
-                  aria-label="Edit message"
-                >
-                  <Pencil className="h-3.5 w-3.5" />
-                </Button>
-                <Button
-                  onClick={onCancel}
-                  variant="unstyled"
-                  className="rounded-lg p-2 text-text-secondary hover:bg-error-100 hover:text-error-600 dark:text-text-dark-secondary dark:hover:bg-error-500/10 dark:hover:text-error-400"
-                  aria-label="Cancel message"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </Button>
-              </>
-            )}
-          </div>
-        </div>
-
-        <div className="min-w-0 space-y-2 sm:pl-14">
-          {isUploadingFiles && (
-            <div className="mb-2 flex h-14 w-14 items-center justify-center rounded-lg bg-surface-secondary dark:bg-surface-dark-secondary">
-              <div className="h-4 w-4 animate-pulse rounded-full bg-text-quaternary dark:bg-text-dark-quaternary" />
+    <div className="group px-4 py-1.5 sm:px-6 sm:py-2">
+      <div className="flex items-start">
+        <div className="min-w-0 flex-1">
+          {hasLocalFiles && !hasServerAttachments && (
+            <div className="mb-2 flex flex-wrap gap-2">
+              {message.files!.map((file, idx) => (
+                <LocalUploadingPreview
+                  key={`${file.name}-${file.lastModified}-${idx}`}
+                  file={file}
+                />
+              ))}
             </div>
           )}
           {hasServerAttachments && message.attachments && (
@@ -208,36 +254,62 @@ export const PendingMessage = memo(function PendingMessage({
           )}
 
           {isEditing ? (
-            <div className="space-y-2">
-              <textarea
-                ref={textareaRef}
-                value={editContent}
-                onChange={(e) => setEditContent(e.target.value)}
-                onKeyDown={handleKeyDown}
-                className="bg-surface-primary dark:bg-surface-dark-primary w-full resize-none rounded-lg border border-border p-3 text-sm text-text-primary focus:border-brand-500 focus:outline-none dark:border-border-dark dark:text-text-dark-primary"
-                rows={3}
-              />
-              <div className="flex items-center gap-2">
-                <Button
-                  onClick={handleSaveEdit}
-                  variant="unstyled"
-                  className="flex items-center gap-1.5 rounded-lg bg-brand-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-600"
-                >
-                  <Check className="h-3.5 w-3.5" />
-                  Save
-                </Button>
-                <Button
-                  onClick={handleCancelEdit}
-                  variant="unstyled"
-                  className="rounded-lg px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover dark:text-text-dark-secondary dark:hover:bg-surface-dark-hover"
-                >
-                  Cancel
-                </Button>
+            <div className="flex items-center gap-1.5">
+              <div className="inline-block max-w-full rounded-xl border border-border-hover bg-surface-hover/60 dark:border-border-dark-hover dark:bg-surface-dark-tertiary/80">
+                <textarea
+                  ref={textareaRef}
+                  value={editContent}
+                  onChange={(e) => setEditContent(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  className="w-full resize-none bg-transparent px-3 py-1.5 text-sm leading-5 text-text-primary placeholder:text-text-quaternary focus:outline-none dark:text-text-dark-primary"
+                  rows={1}
+                />
               </div>
+              <Button
+                onClick={handleSaveEdit}
+                variant="unstyled"
+                className="rounded-md p-1 text-text-tertiary transition-colors duration-200 hover:bg-surface-hover hover:text-text-primary dark:text-text-dark-tertiary dark:hover:bg-surface-dark-hover dark:hover:text-text-dark-primary"
+                aria-label="Save edit"
+              >
+                <Check className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                onClick={handleCancelEdit}
+                variant="unstyled"
+                className="rounded-md p-1 text-text-quaternary transition-colors duration-200 hover:bg-error-100 hover:text-error-600 dark:text-text-dark-quaternary dark:hover:bg-error-500/10 dark:hover:text-error-400"
+                aria-label="Cancel edit"
+              >
+                <X className="h-3.5 w-3.5" />
+              </Button>
             </div>
           ) : (
-            <div className="text-sm text-text-secondary dark:text-text-dark-secondary">
-              <p className="whitespace-pre-wrap leading-5">{message.content}</p>
+            <div className="flex items-center gap-2">
+              <div className="inline-block max-w-full rounded-xl bg-surface-hover/60 px-3 py-1.5 dark:bg-surface-dark-tertiary/80">
+                <p className="whitespace-pre-wrap text-sm leading-5 text-text-primary dark:text-text-dark-primary">
+                  {message.content}
+                </p>
+              </div>
+              <span className="animate-pulse-slow text-2xs font-medium text-text-quaternary dark:text-text-dark-quaternary">
+                Queued
+              </span>
+              <div className="flex items-center gap-0.5 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+                <Button
+                  onClick={handleStartEdit}
+                  variant="unstyled"
+                  className="rounded-md p-1 text-text-quaternary transition-colors duration-200 hover:bg-surface-hover hover:text-text-primary dark:text-text-dark-quaternary dark:hover:bg-surface-dark-hover dark:hover:text-text-dark-primary"
+                  aria-label="Edit message"
+                >
+                  <Pencil className="h-3 w-3" />
+                </Button>
+                <Button
+                  onClick={onCancel}
+                  variant="unstyled"
+                  className="rounded-md p-1 text-text-quaternary transition-colors duration-200 hover:bg-error-100 hover:text-error-600 dark:text-text-dark-quaternary dark:hover:bg-error-500/10 dark:hover:text-error-400"
+                  aria-label="Cancel message"
+                >
+                  <X className="h-3 w-3" />
+                </Button>
+              </div>
             </div>
           )}
         </div>

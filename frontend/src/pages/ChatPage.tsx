@@ -260,6 +260,7 @@ export function ChatPage() {
           return (
             <ChatComponent
               messages={messages}
+              pendingUserMessageId={streamingState.pendingUserMessageId}
               copiedMessageId={streamingState.copiedMessageId}
               isLoading={isLoading}
               isStreaming={isStreaming}
@@ -373,7 +374,7 @@ export function ChatPage() {
   return (
     <div className="relative flex h-full">
       <ViewSwitcher />
-      <div className="flex h-full flex-1 overflow-hidden bg-surface-secondary pl-12 text-text-primary dark:bg-surface-dark-secondary dark:text-text-dark-primary">
+      <div className="flex h-full flex-1 overflow-hidden bg-surface pl-12 text-text-primary dark:bg-surface-dark dark:text-text-dark-primary">
         <SplitViewContainer renderView={renderView} />
       </div>
     </div>

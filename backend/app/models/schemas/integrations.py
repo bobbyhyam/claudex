@@ -24,3 +24,27 @@ class GmailStatusResponse(BaseModel):
     email: str | None = None
     connected_at: datetime | None = None
     has_oauth_client: bool = False
+
+
+class DeviceCodeResponse(BaseModel):
+    verification_uri: str
+    user_code: str
+    device_code: str
+    interval: int
+    expires_in: int
+
+
+class PollTokenRequest(BaseModel):
+    device_code: str
+
+
+class OpenAIPollTokenRequest(BaseModel):
+    device_code: str
+    user_code: str
+
+
+class PollTokenResponse(BaseModel):
+    status: str
+    access_token: str | None = None
+    refresh_token: str | None = None
+    interval: int | None = None

@@ -1,6 +1,8 @@
 import logging
 from datetime import datetime, timedelta, timezone
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,12 +12,16 @@ from app.core.deps import get_db, get_user_service
 from app.core.security import get_current_user
 from app.models.db_models import User
 from app.models.schemas.integrations import (
+    DeviceCodeResponse,
     GmailStatusResponse,
     OAuthClientResponse,
     OAuthClientUploadRequest,
     OAuthUrlResponse,
+    OpenAIPollTokenRequest,
+    PollTokenRequest,
+    PollTokenResponse,
 )
-from app.services import gmail_oauth
+from app.services import copilot_oauth, gmail_oauth, openai_oauth
 from app.services.exceptions import UserException
 from app.services.user import UserService
 
@@ -225,6 +231,120 @@ async def disconnect_gmail(
     )
 
     return OAuthClientResponse(success=True, message="Gmail disconnected")
+
+
+@router.post("/copilot/device-code", response_model=DeviceCodeResponse)
+async def start_device_flow(
+    _current_user: User = Depends(get_current_user),
+) -> DeviceCodeResponse:
+    try:
+        data: dict[str, Any] = await copilot_oauth.start_device_authorization()
+    except Exception:
+        raise HTTPException(
+            status_code=502,
+            detail="Failed to initiate GitHub device authorization",
+        )
+
+    return DeviceCodeResponse(
+        verification_uri=data["verification_uri"],
+        user_code=data["user_code"],
+        device_code=data["device_code"],
+        interval=data.get("interval", 5),
+        expires_in=data.get("expires_in", 900),
+    )
+
+
+@router.post("/copilot/poll-token", response_model=PollTokenResponse)
+async def poll_token(
+    request: PollTokenRequest,
+    _current_user: User = Depends(get_current_user),
+) -> PollTokenResponse:
+    try:
+        data: dict[str, Any] = await copilot_oauth.poll_access_token(
+            request.device_code
+        )
+    except Exception:
+        raise HTTPException(status_code=502, detail="GitHub token request failed")
+
+    if data.get("access_token"):
+        return PollTokenResponse(status="success", access_token=data["access_token"])
+
+    error = data.get("error", "unknown")
+    if error == "authorization_pending":
+        return PollTokenResponse(status="pending")
+    if error == "slow_down":
+        interval = data.get("interval")
+        if isinstance(interval, int) and interval > 0:
+            return PollTokenResponse(status="slow_down", interval=interval)
+        return PollTokenResponse(status="slow_down")
+
+    raise HTTPException(status_code=400, detail=f"Authorization failed: {error}")
+
+
+@router.post("/openai/device-code", response_model=DeviceCodeResponse)
+async def start_openai_device_flow(
+    _current_user: User = Depends(get_current_user),
+) -> DeviceCodeResponse:
+    try:
+        data: dict[str, Any] = await openai_oauth.start_device_authorization()
+    except Exception:
+        raise HTTPException(
+            status_code=502,
+            detail="Failed to initiate OpenAI device authorization",
+        )
+
+    return DeviceCodeResponse(
+        verification_uri=openai_oauth.VERIFICATION_URI,
+        user_code=data["user_code"],
+        device_code=data["device_auth_id"],
+        interval=int(data.get("interval", 5)),
+        expires_in=data.get("expires_in", 900),
+    )
+
+
+@router.post("/openai/poll-token", response_model=PollTokenResponse)
+async def poll_openai_token(
+    request: OpenAIPollTokenRequest,
+    _current_user: User = Depends(get_current_user),
+) -> PollTokenResponse:
+    try:
+        data: dict[str, Any] = await openai_oauth.poll_device_token(
+            request.device_code, request.user_code
+        )
+    except Exception:
+        raise HTTPException(status_code=502, detail="OpenAI token request failed")
+
+    status_code = data.get("status_code", 0)
+    if status_code in (403, 404):
+        return PollTokenResponse(status="pending")
+
+    if status_code == 200:
+        auth_code = data.get("authorization_code")
+        code_verifier = data.get("code_verifier")
+        if not auth_code or not code_verifier:
+            raise HTTPException(
+                status_code=502,
+                detail="Incomplete authorization response from OpenAI",
+            )
+        try:
+            tokens = await openai_oauth.exchange_authorization_code(
+                auth_code, code_verifier
+            )
+        except Exception:
+            raise HTTPException(
+                status_code=502,
+                detail="Failed to exchange OpenAI authorization code",
+            )
+        return PollTokenResponse(
+            status="success",
+            access_token=tokens["access_token"],
+            refresh_token=tokens.get("refresh_token"),
+        )
+
+    raise HTTPException(
+        status_code=400,
+        detail=f"OpenAI authorization failed (status {status_code})",
+    )
 
 
 def _callback_html(error: str | None, email: str | None = None) -> str:
