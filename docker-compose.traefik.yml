@@ -1,6 +1,6 @@
 services:
   traefik:
-    image: traefik:v3.0
+    image: traefik:v3.4
     container_name: claudex-traefik
     restart: always
     command:
@@ -111,6 +111,7 @@ services:
       - SECRET_KEY=${SECRET_KEY}
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - ALLOWED_ORIGINS=https://${DOMAIN}
     networks:
       - claudex-proxy
       - claudex-internal
