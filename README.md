@@ -200,17 +200,14 @@ For production deployment on a VPS, see the [Coolify Installation Guide](docs/co
 
 ### Docker Compose
 
-Two production-ready Docker Compose configurations are provided, both using pre-built images from GHCR.
+**Prerequisites**
+Currently, Claudex has two modes of deployment with Docker Compose:
+- On your localhost (mainly used for development purposes)
+- On an internet facing server
 
-**Simple (direct port exposure):**
+There is currently no configuration provided for deploying it into a private network and accessing it across the LAN without allowing inbound. This is because it relies on wildcard DNS and publicly signed SSL certificates.
 
-```bash
-cp .env.simple.example .env
-# Edit .env — set SECRET_KEY at minimum
-docker compose -f docker-compose.simple.yml up -d
-```
-
-Frontend at `http://localhost:3000`, API at `http://localhost:8080`.
+In the future the plan is to add a configuration for a local, private deployment. For now, you must have a public domain with wildcard DNS support and port 80 and 443 open to the compose stack.
 
 **Traefik (HTTPS with Let's Encrypt):**
 
