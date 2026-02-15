@@ -57,6 +57,8 @@ export function usePermissionRequest(chatId: string | undefined): UsePermissionR
       clearPermissionRequest(chatId);
       if (pendingRequest.tool_name === 'ExitPlanMode') {
         setPermissionMode('auto');
+      } else if (pendingRequest.tool_name === 'EnterPlanMode') {
+        setPermissionMode('plan');
       }
     } catch (err) {
       if (isExpiredRequestError(err)) {
