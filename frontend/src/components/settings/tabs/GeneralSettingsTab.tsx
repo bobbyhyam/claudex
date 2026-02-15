@@ -89,7 +89,6 @@ export const GeneralSettingsTab: React.FC<GeneralSettingsTabProps> = ({
           Select the sandbox environment for code execution. E2B and Modal require API keys.
         </p>
         <SegmentedControl
-          layoutId="sandbox-provider"
           value={settings.sandbox_provider ?? 'docker'}
           onChange={(val) => onSandboxProviderChange(val as SandboxProviderType)}
           options={[

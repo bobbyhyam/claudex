@@ -74,6 +74,7 @@ export const useUIStore = create<UIStoreState>()(
     }),
     {
       name: 'ui-storage',
+      version: 1,
       partialize: (state) => ({
         theme: state.theme,
         permissionMode: state.permissionMode,
@@ -83,6 +84,7 @@ export const useUIStore = create<UIStoreState>()(
         isSplitMode: state.isSplitMode,
         sidebarOpen: state.sidebarOpen,
       }),
+      migrate: (persisted) => persisted as Record<string, unknown>,
       merge: (persisted, current) => ({
         ...current,
         ...(persisted || {}),

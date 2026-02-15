@@ -39,3 +39,5 @@ export interface ChatSessionContextValue {
 }
 
 export const ChatSessionContext = createContext<ChatSessionContextValue | null>(null);
+export const ChatSessionStateContext = createContext<ChatSessionState | null>(null);
+export const ChatSessionActionsContext = createContext<ChatSessionActions | null>(null);

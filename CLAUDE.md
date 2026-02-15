@@ -176,7 +176,7 @@
 - Icon buttons in headers: `h-3 w-3` icons, no background, hover with `text-text-primary`
 
 ### Animations & Transitions
-- Use `framer-motion` for state transitions (`AnimatePresence mode="wait"`, `motion.div` with `initial`/`animate`/`exit`) — common values: `opacity: 0→1`, `y: 5→0`, `scale: 0.98→1`
+- Use CSS keyframe animations via Tailwind (`animate-fade-in`, `animate-fade-in-up`, `animate-dot-pulse`, etc.) for enter/state transitions — do not use `framer-motion` or other JS animation libraries
 - Use `transition-colors duration-200` for hover/focus, `transition-all duration-300` for complex state changes like drag-and-drop
 - Use `transition-[padding] duration-500 ease-in-out` for sidebar/layout animations
 - Loading states: `animate-spin` for spinners, `animate-pulse` for skeletons, `animate-bounce` with staggered `animationDelay` for dot loaders

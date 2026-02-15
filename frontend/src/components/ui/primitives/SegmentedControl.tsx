@@ -1,5 +1,4 @@
-import { type ReactNode } from 'react';
-import { motion } from 'framer-motion';
+import { useRef, useLayoutEffect, useCallback, useState, type ReactNode } from 'react';
 import { cn } from '@/utils/cn';
 
 export interface SegmentOption<T extends string = string> {
@@ -12,7 +11,6 @@ export interface SegmentedControlProps<T extends string = string> {
   options: SegmentOption<T>[];
   value: T;
   onChange: (value: T) => void;
-  layoutId?: string;
   className?: string;
 }
 
@@ -20,17 +18,58 @@ export function SegmentedControl<T extends string = string>({
   options,
   value,
   onChange,
-  layoutId = 'segment-indicator',
   className,
 }: SegmentedControlProps<T>) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [indicatorStyle, setIndicatorStyle] = useState<React.CSSProperties>({
+    opacity: 0,
+  });
+
+  const updateIndicator = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const activeIndex = options.findIndex((o) => o.value === value);
+    if (activeIndex < 0) {
+      setIndicatorStyle({ opacity: 0 });
+      return;
+    }
+
+    const buttons = container.querySelectorAll<HTMLButtonElement>('[role="radio"]');
+    const activeButton = buttons[activeIndex];
+    if (!activeButton) return;
+
+    setIndicatorStyle({
+      opacity: 1,
+      width: activeButton.offsetWidth,
+      transform: `translateX(${activeButton.offsetLeft}px)`,
+    });
+  }, [value, options]);
+
+  useLayoutEffect(() => {
+    updateIndicator();
+
+    const container = containerRef.current;
+    if (!container) return;
+
+    const observer = new ResizeObserver(updateIndicator);
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [updateIndicator]);
+
   return (
     <div
+      ref={containerRef}
       className={cn(
-        'inline-flex rounded-lg border border-border bg-surface-tertiary p-0.5 dark:border-border-dark dark:bg-surface-dark-secondary',
+        'relative inline-flex rounded-lg border border-border bg-surface-tertiary p-0.5 dark:border-border-dark dark:bg-surface-dark-secondary',
         className,
       )}
       role="radiogroup"
     >
+      <span
+        className="absolute left-0.5 top-0.5 h-[calc(100%-4px)] rounded-md bg-surface-secondary shadow-sm transition-all duration-300 ease-out dark:bg-surface-dark-hover"
+        style={indicatorStyle}
+      />
       {options.map((option) => {
         const isActive = value === option.value;
         return (
@@ -49,13 +88,6 @@ export function SegmentedControl<T extends string = string>({
               option.disabled && 'cursor-not-allowed opacity-35',
             )}
           >
-            {isActive && (
-              <motion.span
-                layoutId={layoutId}
-                className="absolute inset-0 rounded-md bg-surface-secondary shadow-sm dark:bg-surface-dark-hover"
-                transition={{ type: 'spring', bounce: 0.15, duration: 0.4 }}
-              />
-            )}
             <span className="relative z-10">{option.label}</span>
           </button>
         );
