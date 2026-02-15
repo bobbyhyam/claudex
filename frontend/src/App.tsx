@@ -29,6 +29,7 @@ const ResetPasswordPage = lazy(() =>
   import('@/pages/ResetPasswordPage').then((m) => ({ default: m.ResetPasswordPage })),
 );
 const SettingsPage = lazy(() => import('@/pages/SettingsPage'));
+const TodoApp = lazy(() => import('@/pages/TodoApp'));
 
 function AppContent() {
   const setAuthenticated = useAuthStore((state) => state.setAuthenticated);
@@ -137,6 +138,7 @@ function AppContent() {
             </AuthRoute>
           }
         />
+        <Route path="/todos" element={<TodoApp />} />
       </Routes>
     </Suspense>
   );
