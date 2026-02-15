@@ -244,8 +244,11 @@ class ClaudeAgentService:
                 for event in processor.emit_events_for_message(message):
                     if event:
                         yield event
-                        if event.get("tool", {}).get("name") == "ExitPlanMode":
+                        tool_name = event.get("tool", {}).get("name")
+                        if tool_name == "ExitPlanMode":
                             await client.set_permission_mode("auto")
+                        elif tool_name == "EnterPlanMode":
+                            await client.set_permission_mode("plan")
                 if processor.usage is not prev_usage:
                     self._usage = processor.usage
 
