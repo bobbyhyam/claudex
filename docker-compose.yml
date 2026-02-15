@@ -77,6 +77,10 @@ services:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - HOST_PERMISSION_API_URL=http://api:8080
+      - DOCKER_PERMISSION_API_URL=http://claudex-api-web:8080
+    networks:
+      - default
+      - sandbox
 
   frontend:
     build:
@@ -94,6 +98,11 @@ services:
     environment:
       - VITE_API_BASE_URL=/api/v1
       - VITE_WS_URL=/api/v1/ws
+
+networks:
+  sandbox:
+    name: claudex-sandbox-net
+    external: true
 
 volumes:
   postgres_data:
