@@ -9,7 +9,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { LoadingOverlay } from '@/components/ui/LoadingOverlay';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { useChatContext } from '@/hooks/useChatContext';
-import { useChatSessionContext } from '@/hooks/useChatSessionContext';
+import { useChatSessionState, useChatSessionActions } from '@/hooks/useChatSessionContext';
 import toast from 'react-hot-toast';
 
 interface MessageActionsProps {
@@ -24,10 +24,8 @@ export const MessageActions = memo(function MessageActions({
   isLastBotMessageWithCommit,
 }: MessageActionsProps) {
   const { chatId, sandboxId } = useChatContext();
-  const { state, actions } = useChatSessionContext();
-  const copiedMessageId = state.copiedMessageId;
-  const isGloballyStreaming = state.isStreaming;
-  const { onCopy, onRestoreSuccess } = actions;
+  const { copiedMessageId, isStreaming: isGloballyStreaming } = useChatSessionState();
+  const { onCopy, onRestoreSuccess } = useChatSessionActions();
   const { data: settings } = useSettingsQuery();
   const sandboxProvider = settings?.sandbox_provider ?? 'docker';
   const navigate = useNavigate();
