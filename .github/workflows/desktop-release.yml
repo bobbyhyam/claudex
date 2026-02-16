@@ -4,12 +4,13 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  build-and-release:
+  build:
     name: Build Desktop Bundles (${{ matrix.platform.name }})
     runs-on: ${{ matrix.platform.runner }}
     strategy:
@@ -53,14 +54,51 @@ jobs:
           cd frontend
           npm ci --legacy-peer-deps
 
-      - name: Build and publish Tauri release
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build Tauri bundles
+        run: |
+          cd frontend
+          npm run desktop:build
+
+      - name: Upload desktop artifacts
+        uses: actions/upload-artifact@v4
         with:
-          projectPath: frontend
-          tagName: ${{ github.ref_name }}
-          releaseName: Claudex Desktop ${{ github.ref_name }}
-          releaseBody: Desktop release for ${{ github.ref_name }}.
-          releaseDraft: false
+          name: desktop-${{ matrix.platform.name }}
+          if-no-files-found: error
+          path: |
+            frontend/src-tauri/target/release/bundle/**/*.dmg
+            frontend/src-tauri/target/release/bundle/**/*.app.tar.gz
+            frontend/src-tauri/target/release/bundle/**/*.app.tar.gz.sig
+            frontend/src-tauri/target/release/bundle/**/*.AppImage
+            frontend/src-tauri/target/release/bundle/**/*.AppImage.tar.gz
+            frontend/src-tauri/target/release/bundle/**/*.AppImage.tar.gz.sig
+            frontend/src-tauri/target/release/bundle/**/*.deb
+            frontend/src-tauri/target/release/bundle/**/*.rpm
+            frontend/src-tauri/target/release/bundle/**/*.msi
+            frontend/src-tauri/target/release/bundle/**/*.msi.zip
+            frontend/src-tauri/target/release/bundle/**/*.msi.zip.sig
+            frontend/src-tauri/target/release/bundle/**/*.nsis.zip
+            frontend/src-tauri/target/release/bundle/**/*.nsis.zip.sig
+            frontend/src-tauri/target/release/bundle/**/*.exe
+
+  publish:
+    name: Publish Desktop Release
+    runs-on: ubuntu-22.04
+    needs: build
+    steps:
+      - name: Download desktop artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: desktop-artifacts
+          merge-multiple: true
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Claudex Desktop ${{ github.ref_name }}
+          body: Desktop release for ${{ github.ref_name }}.
+          draft: false
           prerelease: false
+          fail_on_unmatched_files: true
+          files: |
+            desktop-artifacts/**/*
