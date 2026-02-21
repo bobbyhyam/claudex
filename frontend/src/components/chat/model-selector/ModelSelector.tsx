@@ -97,7 +97,7 @@ export const ModelSelector = memo(function ModelSelector({
       searchPlaceholder="Search models..."
       renderItem={(model, isSelected) => (
         <span
-          className={`truncate text-xs font-medium ${isSelected ? 'text-text-primary dark:text-text-dark-primary' : 'text-text-secondary dark:text-text-dark-secondary'}`}
+          className={`truncate text-2xs font-medium ${isSelected ? 'text-text-primary dark:text-text-dark-primary' : 'text-text-secondary dark:text-text-dark-secondary'}`}
         >
           {model.name}
         </span>

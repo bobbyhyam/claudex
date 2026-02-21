@@ -47,7 +47,7 @@ export const PermissionModeSelector = memo(function PermissionModeSelector({
       renderItem={(mode, isSelected) => (
         <>
           <span
-            className={`text-xs font-medium text-text-primary ${isSelected ? 'dark:text-text-dark-primary' : 'dark:text-text-dark-secondary'}`}
+            className={`text-2xs font-medium text-text-primary ${isSelected ? 'dark:text-text-dark-primary' : 'dark:text-text-dark-secondary'}`}
           >
             {mode.label}
           </span>

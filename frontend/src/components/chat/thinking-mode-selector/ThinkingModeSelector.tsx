@@ -47,7 +47,7 @@ export const ThinkingModeSelector = memo(function ThinkingModeSelector({
       renderItem={(mode, isSelected) => (
         <div className="flex w-full items-center justify-between gap-3">
           <span
-            className={`text-xs font-medium ${isSelected ? 'text-text-primary dark:text-text-dark-primary' : 'text-text-secondary dark:text-text-dark-secondary'}`}
+            className={`text-2xs font-medium ${isSelected ? 'text-text-primary dark:text-text-dark-primary' : 'text-text-secondary dark:text-text-dark-secondary'}`}
           >
             {mode.label}
           </span>
