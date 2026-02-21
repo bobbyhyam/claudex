@@ -26,7 +26,7 @@ export function EnhanceButton({
       aria-label={isEnhancing ? 'Enhancing prompt\u2026' : 'Enhance prompt'}
       title={isEnhancing ? 'Enhancing prompt\u2026' : 'Enhance prompt with AI'}
     >
-      <Sparkles className={`h-3.5 w-3.5 ${isEnhancing ? 'animate-spin' : ''}`} />
+      <Sparkles className={`h-3 w-3 ${isEnhancing ? 'animate-spin' : ''}`} />
     </Button>
   );
 }

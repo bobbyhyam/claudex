@@ -54,16 +54,16 @@ export function SendButton({
   const renderIcon = () => {
     if (showSpinnerIcon) {
       return (
-        <LoaderCircle className="h-4 w-4 animate-spin text-text-dark-primary dark:text-text-primary" />
+        <LoaderCircle className="h-3.5 w-3.5 animate-spin text-text-dark-primary dark:text-text-primary" />
       );
     }
 
     if (showStopIcon) {
-      return <Pause className="h-3.5 w-3.5 animate-pulse text-text-dark-primary" />;
+      return <Pause className="h-3 w-3 animate-pulse text-text-dark-primary" />;
     }
     return (
       <ArrowUp
-        className={`h-4 w-4 transition-transform ${hasMessage ? 'text-text-dark-primary dark:text-text-primary' : 'text-text-quaternary'}`}
+        className={`h-3.5 w-3.5 transition-transform ${hasMessage ? 'text-text-dark-primary dark:text-text-primary' : 'text-text-quaternary'}`}
       />
     );
   };

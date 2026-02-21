@@ -124,9 +124,9 @@ function DropdownInner<T>({
   const showIconOnly = (compactOnMobile || forceCompact) && LeftIcon;
   const labelClasses = showIconOnly
     ? forceCompact
-      ? 'hidden whitespace-nowrap text-xs font-medium text-text-primary dark:text-text-dark-secondary'
-      : 'hidden lg:inline whitespace-nowrap text-xs font-medium text-text-primary dark:text-text-dark-secondary'
-    : 'whitespace-nowrap text-xs font-medium text-text-primary dark:text-text-dark-secondary';
+      ? 'hidden whitespace-nowrap text-2xs font-medium text-text-primary dark:text-text-dark-secondary'
+      : 'hidden lg:inline whitespace-nowrap text-2xs font-medium text-text-primary dark:text-text-dark-secondary'
+    : 'whitespace-nowrap text-2xs font-medium text-text-primary dark:text-text-dark-secondary';
   const chevronClasses = showIconOnly
     ? forceCompact
       ? 'hidden'
@@ -146,7 +146,7 @@ function DropdownInner<T>({
       >
         {LeftIcon && (
           <LeftIcon
-            className={`h-3.5 w-3.5 text-text-tertiary dark:text-text-dark-tertiary${forceCompact ? '' : 'lg:hidden'}`}
+            className={`h-3 w-3 text-text-tertiary dark:text-text-dark-tertiary${forceCompact ? '' : 'lg:hidden'}`}
           />
         )}
         <span className={labelClasses}>
@@ -171,7 +171,7 @@ function DropdownInner<T>({
                   onKeyDown={handleSearchKeyDown}
                   placeholder={searchPlaceholder}
                   autoFocus={!isMobile}
-                  className="h-7 w-full rounded-lg border border-border bg-surface-tertiary py-1 pl-7 pr-7 text-xs text-text-primary transition-colors duration-200 placeholder:text-text-quaternary focus:border-border-hover focus:outline-none dark:border-border-dark dark:bg-surface-dark-tertiary dark:text-text-dark-primary dark:placeholder:text-text-dark-quaternary dark:focus:border-border-dark-hover"
+                  className="h-7 w-full rounded-lg border border-border bg-surface-tertiary py-1 pl-7 pr-7 text-2xs text-text-primary transition-colors duration-200 placeholder:text-text-quaternary focus:border-border-hover focus:outline-none dark:border-border-dark dark:bg-surface-dark-tertiary dark:text-text-dark-primary dark:placeholder:text-text-dark-quaternary dark:focus:border-border-dark-hover"
                 />
                 {searchQuery && (
                   <Button
@@ -220,7 +220,7 @@ function DropdownInner<T>({
                           renderItem(item.data, isSelected)
                         ) : (
                           <span
-                            className={`text-xs font-medium ${
+                            className={`text-2xs font-medium ${
                               isSelected
                                 ? 'text-text-primary dark:text-text-dark-primary'
                                 : 'text-text-secondary dark:text-text-dark-secondary'
@@ -254,7 +254,7 @@ function DropdownInner<T>({
                           renderItem(item, isSelected)
                         ) : (
                           <span
-                            className={`text-xs font-medium ${
+                            className={`text-2xs font-medium ${
                               isSelected
                                 ? 'text-text-primary dark:text-text-dark-primary'
                                 : 'text-text-secondary dark:text-text-dark-secondary'
