@@ -1,7 +1,7 @@
 import { apiClient } from '@/lib/api';
 import { ensureResponse, serviceCall, withAuth } from '@/services/base/BaseService';
 import { ValidationError } from '@/services/base/ServiceError';
-import type { AuthResponse, User, UserUsage } from '@/types/user.types';
+import type { AuthResponse, User } from '@/types/user.types';
 import { authStorage } from '@/utils/storage';
 import {
   validateRequired,
@@ -104,13 +104,6 @@ async function getCurrentUser(): Promise<User> {
   });
 }
 
-async function getUserUsage(): Promise<UserUsage> {
-  return withAuth(async () => {
-    const response = await apiClient.get<UserUsage>('/auth/usage');
-    return ensureResponse(response, 'Invalid response from server');
-  });
-}
-
 async function logout(): Promise<void> {
   const currentRefreshToken = authStorage.getRefreshToken();
   try {
@@ -163,7 +156,6 @@ export const authService = {
   signup,
   login,
   getCurrentUser,
-  getUserUsage,
   logout,
   getToken,
   isAuthenticated,

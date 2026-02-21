@@ -71,7 +71,3 @@ class RefreshTokenRequest(BaseModel):
 
 class LogoutRequest(BaseModel):
     refresh_token: str
-
-
-class UserUsage(BaseModel):
-    messages_used_today: int

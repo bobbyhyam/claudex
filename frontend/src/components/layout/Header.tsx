@@ -1,18 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowLeft, Command, LogOut, Moon, Settings, Sun } from 'lucide-react';
 import { useNavigate, useMatch } from 'react-router-dom';
 import { useAuthStore } from '@/store/authStore';
 import { useUIStore } from '@/store/uiStore';
-import {
-  useCurrentUserQuery,
-  useLogoutMutation,
-  useUserUsageQuery,
-} from '@/hooks/queries/useAuthQueries';
+import { useCurrentUserQuery, useLogoutMutation } from '@/hooks/queries/useAuthQueries';
 import { Button } from '@/components/ui/primitives/Button';
 import { ToggleButton } from '@/components/ui/ToggleButton';
 import { cn } from '@/utils/cn';
 import { UserAvatarCircle } from '@/components/chat/message-bubble/MessageAvatars';
-import type { UserUsage } from '@/types/user.types';
 
 export interface HeaderProps {
   onLogout?: () => void;
@@ -44,13 +39,6 @@ function useClickOutside<T extends HTMLElement>(
     document.addEventListener('mousedown', handle);
     return () => document.removeEventListener('mousedown', handle);
   }, [handler, ref]);
-}
-
-function buildUsageMeta(usage?: UserUsage) {
-  if (!usage) return null;
-
-  const emphasisClass = 'text-text-tertiary dark:text-text-dark-tertiary font-medium';
-  return { emphasisClass };
 }
 
 function ThemeToggleButton({ theme, onToggle }: { theme: string; onToggle: () => void }) {
@@ -107,7 +95,6 @@ function AuthButtons({ onLogin, onSignup }: { onLogin: () => void; onSignup: () 
 
 function UserMenu({
   displayName,
-  usage,
   theme,
   onToggleTheme,
   onSettings,
@@ -115,7 +102,6 @@ function UserMenu({
   onLogout,
 }: {
   displayName: string;
-  usage?: UserUsage;
   theme: string;
   onToggleTheme: () => void;
   onSettings: () => void;
@@ -129,8 +115,6 @@ function UserMenu({
   const toggleMenu = useCallback(() => setIsOpen((prev) => !prev), []);
 
   useClickOutside(dropdownRef, closeMenu);
-
-  const usageMeta = useMemo(() => buildUsageMeta(usage), [usage]);
 
   return (
     <div className="relative" ref={dropdownRef}>
@@ -167,16 +151,6 @@ function UserMenu({
                 </p>
               </div>
             </div>
-            {usageMeta && usage && (
-              <div className="mt-2.5 space-y-1">
-                <div className="flex items-center justify-between">
-                  <span className={cn('text-2xs', usageMeta.emphasisClass)}>Messages</span>
-                  <span className={cn('text-2xs tabular-nums', usageMeta.emphasisClass)}>
-                    {usage.messages_used_today}
-                  </span>
-                </div>
-              </div>
-            )}
           </div>
 
           <div className="p-1">
@@ -230,10 +204,6 @@ export function Header({ onLogout, userName = 'User', isAuthPage = false }: Head
   const sidebarOpen = useUIStore((state) => state.sidebarOpen);
 
   const { data: user } = useCurrentUserQuery({
-    enabled: isAuthenticated && !isAuthPage,
-  });
-
-  const { data: usage } = useUserUsageQuery({
     enabled: isAuthenticated && !isAuthPage,
   });
 
@@ -321,7 +291,6 @@ export function Header({ onLogout, userName = 'User', isAuthPage = false }: Head
           {isAuthPage ? null : isAuthenticated ? (
             <UserMenu
               displayName={displayName}
-              usage={usage}
               theme={theme}
               onToggleTheme={() => useUIStore.getState().toggleTheme()}
               onSettings={() => {

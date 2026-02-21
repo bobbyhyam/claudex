@@ -6,10 +6,6 @@ export interface User {
   email_verification_required: boolean;
 }
 
-export interface UserUsage {
-  messages_used_today: number;
-}
-
 export interface AuthResponse {
   access_token: string;
   refresh_token: string;

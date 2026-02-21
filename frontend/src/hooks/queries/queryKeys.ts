@@ -5,7 +5,6 @@ export const queryKeys = {
   contextUsage: (chatId: string) => ['chat', chatId, 'context-usage'] as const,
   auth: {
     user: 'auth-user',
-    usage: 'auth-usage',
   },
   settings: 'settings',
   sandbox: {
