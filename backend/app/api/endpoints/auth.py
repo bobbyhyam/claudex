@@ -9,7 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.core.deps import get_refresh_token_service, get_user_service
+from app.core.deps import get_refresh_token_service
 from app.core.security import verify_password
 from app.core.user_manager import (
     UserDatabase,
@@ -29,12 +29,10 @@ from app.models.schemas.auth import (
     UserCreate,
     UserOut,
     UserRead,
-    UserUsage,
 )
 from app.services.email import email_service
 from app.services.exceptions import AuthException
 from app.services.refresh_token import RefreshTokenService
-from app.services.user import UserService
 
 settings = get_settings()
 router = APIRouter()
@@ -139,18 +137,6 @@ router.include_router(
 @router.get("/me", response_model=UserOut)
 async def get_me(current_user: User = Depends(current_active_user)) -> User:
     return current_user
-
-
-@router.get("/usage", response_model=UserUsage)
-async def get_user_usage(
-    current_user: User = Depends(current_active_user),
-    user_service: UserService = Depends(get_user_service),
-) -> UserUsage:
-    messages_used = await user_service.get_user_daily_message_count(current_user.id)
-
-    return UserUsage(
-        messages_used_today=messages_used,
-    )
 
 
 @router.post("/jwt/refresh", response_model=Token)

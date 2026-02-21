@@ -240,30 +240,11 @@ class TestCurrentUser:
         assert data["id"] == str(integration_user_fixture.id)
 
 
-class TestUserUsage:
-    async def test_get_user_usage(
-        self,
-        async_client: AsyncClient,
-        integration_user_fixture: User,
-        auth_headers: dict[str, str],
-    ) -> None:
-        response = await async_client.get(
-            "/api/v1/auth/usage",
-            headers=auth_headers,
-        )
-
-        assert response.status_code == 200
-        data = response.json()
-        assert "messages_used_today" in data
-        assert isinstance(data["messages_used_today"], int)
-
-
 class TestUnauthorizedAccess:
     @pytest.mark.parametrize(
         "endpoint",
         [
             "/api/v1/auth/me",
-            "/api/v1/auth/usage",
         ],
     )
     async def test_unauthorized_access(

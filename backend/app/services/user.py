@@ -1,17 +1,14 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
 from typing import Any, cast
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.constants import REDIS_KEY_USER_SETTINGS
 from app.core.config import get_settings
-from app.models.db_models.chat import Chat, Message
-from app.models.db_models.enums import MessageRole
 from app.models.db_models.user import UserSettings
 from app.models.schemas.settings import UserSettingsResponse
 from app.models.types import InstalledPluginDict
@@ -161,22 +158,3 @@ class UserService(BaseDbService[UserSettings]):
         if modified:
             user_settings.installed_plugins = updated_plugins
         return modified
-
-    async def get_user_daily_message_count(self, user_id: UUID) -> int:
-        today = date.today()
-        start_of_day = datetime.combine(today, datetime.min.time()).replace(
-            tzinfo=timezone.utc
-        )
-        end_of_day = datetime.combine(today, datetime.max.time()).replace(
-            tzinfo=timezone.utc
-        )
-
-        async with self.session_factory() as db:
-            query = select(func.count(Message.id)).filter(
-                Message.role == MessageRole.USER,
-                Message.created_at >= start_of_day,
-                Message.created_at <= end_of_day,
-                Message.chat_id.in_(select(Chat.id).filter(Chat.user_id == user_id)),
-            )
-            result = await db.execute(query)
-            return result.scalar() or 0
