@@ -1,18 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 
 from app.core.deps import get_sandbox_service, validate_sandbox_ownership
-from app.models.schemas import (
+from app.models.schemas.chat import PortPreviewLink, PreviewLinksResponse
+from app.models.schemas.sandbox import (
     AddSecretRequest,
     BrowserStatusResponse,
     FileContentResponse,
     FileMetadata,
     IDEUrlResponse,
-    MessageResponse,
-    PortPreviewLink,
-    PreviewLinksResponse,
     SandboxFilesMetadataResponse,
-    SecretResponse,
-    SecretsListResponse,
     StartBrowserRequest,
     UpdateFileRequest,
     UpdateFileResponse,
@@ -20,6 +16,7 @@ from app.models.schemas import (
     UpdateSecretRequest,
     VNCUrlResponse,
 )
+from app.models.schemas.secrets import MessageResponse, SecretResponse, SecretsListResponse
 from app.services.exceptions import SandboxException
 from app.services.sandbox import SandboxService
 
@@ -50,7 +47,7 @@ async def get_vnc_url(
     sandbox_id: str = Depends(validate_sandbox_ownership),
     sandbox_service: SandboxService = Depends(get_sandbox_service),
 ) -> VNCUrlResponse:
-    url = await sandbox_service.get_vnc_url(sandbox_id)
+    url = await sandbox_service.provider.get_vnc_url(sandbox_id)
     return VNCUrlResponse(url=url)
 
 
@@ -131,7 +128,7 @@ async def update_file_in_sandbox(
     sandbox_service: SandboxService = Depends(get_sandbox_service),
 ) -> UpdateFileResponse:
     try:
-        await sandbox_service.write_file(sandbox_id, request.file_path, request.content)
+        await sandbox_service.provider.write_file(sandbox_id, request.file_path, request.content)
         return UpdateFileResponse(
             success=True, message=f"File {request.file_path} updated successfully"
         )
@@ -164,7 +161,9 @@ async def add_secret(
     sandbox_service: SandboxService = Depends(get_sandbox_service),
 ) -> MessageResponse:
     try:
-        await sandbox_service.add_secret(sandbox_id, secret_data.key, secret_data.value)
+        await sandbox_service.provider.add_secret(
+            sandbox_id, secret_data.key, secret_data.value
+        )
         return MessageResponse(message=f"Secret {secret_data.key} added successfully")
     except SandboxException as e:
         raise HTTPException(
@@ -197,7 +196,7 @@ async def delete_secret(
     sandbox_service: SandboxService = Depends(get_sandbox_service),
 ) -> MessageResponse:
     try:
-        await sandbox_service.delete_secret(sandbox_id, key)
+        await sandbox_service.provider.delete_secret(sandbox_id, key)
         return MessageResponse(message=f"Secret {key} deleted successfully")
     except SandboxException as e:
         raise HTTPException(
