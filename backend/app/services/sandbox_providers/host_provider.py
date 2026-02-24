@@ -10,6 +10,7 @@ import shlex
 import shutil
 import signal
 import subprocess
+import sys
 import termios
 import uuid
 from datetime import datetime
@@ -44,10 +45,23 @@ from app.services.sandbox_providers.types import (
 
 logger = logging.getLogger(__name__)
 
-MACOS_LISTENING_PORTS_COMMAND = (
-    "lsof -iTCP -sTCP:LISTEN -nP"
-    " | awk 'NR>1 {split($9,a,\":\"); print a[length(a)]}'"
-    " | grep -E '^[0-9]+$' | sort -u"
+CHECKPOINT_RELATIVE_DIR = Path(CHECKPOINT_BASE_DIR).relative_to(SANDBOX_HOME_DIR)
+
+VIRTUAL_PATH_PATTERN = re.compile(
+    rf"(?:(?<=^)|(?<=[\s\"'=(])){re.escape(SANDBOX_HOME_DIR)}(?=(?:/|$|[\s\"')]))"
+)
+
+LISTENING_PORTS_COMMAND = (
+    (
+        "lsof -iTCP -sTCP:LISTEN -nP"
+        " | awk 'NR>1 {split($9,a,\":\"); print a[length(a)]}'"
+        " | grep -E '^[0-9]+$' | sort -u"
+    )
+    if sys.platform == "darwin"
+    else (
+        "ss -tuln | grep LISTEN | awk '{print $5}' | sed 's/.*://g'"
+        " | grep -E '^[0-9]+$' | sort -u"
+    )
 )
 
 
@@ -102,10 +116,7 @@ class LocalHostProvider(SandboxProvider):
 
     def _map_virtual_paths(self, sandbox_id: str, command: str) -> str:
         sandbox_dir = str(self._resolve_sandbox_dir(sandbox_id))
-        # Map only path-like /home/user tokens (or their /... descendants),
-        # not arbitrary string substrings such as sed patterns.
-        pattern = rf"(?:(?<=^)|(?<=[\s\"'=(])){re.escape(SANDBOX_HOME_DIR)}(?=(?:/|$|[\s\"')]))"
-        return re.sub(pattern, sandbox_dir, command)
+        return VIRTUAL_PATH_PATTERN.sub(sandbox_dir, command)
 
     async def create_sandbox(self, workspace_path: str | None = None) -> str:
         sandbox_id = str(uuid.uuid4())[:12]
@@ -144,7 +155,7 @@ class LocalHostProvider(SandboxProvider):
                 sandbox_dir = candidate
 
         if sandbox_dir and sandbox_dir.is_relative_to(self._base_dir):
-            await asyncio.to_thread(self._remove_dir, sandbox_dir)
+            await asyncio.to_thread(shutil.rmtree, sandbox_dir, ignore_errors=True)
 
     async def is_running(self, sandbox_id: str) -> bool:
         try:
@@ -220,7 +231,7 @@ class LocalHostProvider(SandboxProvider):
         return CommandResult(
             stdout=stdout_str,
             stderr=stderr_str,
-            exit_code=int(process.returncode or 0),
+            exit_code=process.returncode or 0,
         )
 
     async def write_file(
@@ -297,7 +308,8 @@ class LocalHostProvider(SandboxProvider):
         patterns = excluded_patterns or SANDBOX_EXCLUDED_PATHS
         return await asyncio.to_thread(self._walk_files, sandbox_dir, patterns)
 
-    def _resize_fd(self, fd: int, rows: int, cols: int) -> None:
+    @staticmethod
+    def _resize_fd(fd: int, rows: int, cols: int) -> None:
         size = rows.to_bytes(2, "little") + cols.to_bytes(2, "little") + b"\x00" * 4
         fcntl.ioctl(fd, termios.TIOCSWINSZ, size)
 
@@ -460,8 +472,7 @@ class LocalHostProvider(SandboxProvider):
 
     async def list_checkpoints(self, sandbox_id: str) -> list[CheckpointInfo]:
         sandbox_dir = self._resolve_sandbox_dir(sandbox_id)
-        relative = Path(CHECKPOINT_BASE_DIR).relative_to(SANDBOX_HOME_DIR)
-        checkpoint_base = sandbox_dir / relative
+        checkpoint_base = sandbox_dir / CHECKPOINT_RELATIVE_DIR
         return await asyncio.to_thread(self._scan_checkpoints, checkpoint_base)
 
     async def delete_secret(
@@ -469,15 +480,19 @@ class LocalHostProvider(SandboxProvider):
         sandbox_id: str,
         key: str,
     ) -> None:
-        escaped_key = key.replace(".", r"\.").replace("*", r"\*")
-        await self.execute_command(
-            sandbox_id,
-            f"sed -i '' '/^export {escaped_key}=/d' {SANDBOX_BASHRC_PATH}",
-        )
+        bashrc = self._resolve_path(sandbox_id, SANDBOX_BASHRC_PATH)
+        lines = await asyncio.to_thread(bashrc.read_text)
+        prefix = f"export {key}="
+        filtered = [
+            line
+            for line in lines.splitlines(keepends=True)
+            if not line.startswith(prefix)
+        ]
+        await asyncio.to_thread(bashrc.write_text, "".join(filtered))
 
     async def get_preview_links(self, sandbox_id: str) -> list[PreviewLink]:
         result = await self.execute_command(
-            sandbox_id, MACOS_LISTENING_PORTS_COMMAND, timeout=5
+            sandbox_id, LISTENING_PORTS_COMMAND, timeout=5
         )
         listening_ports = self._parse_listening_ports(result.stdout)
         return self._build_preview_links(
@@ -493,15 +508,11 @@ class LocalHostProvider(SandboxProvider):
 
     async def get_vnc_url(self, sandbox_id: str) -> str | None:
         self._resolve_sandbox_dir(sandbox_id)
-        base_url = self._preview_base_url.replace("http://", "ws://").replace(
-            "https://", "wss://"
+        base_url = self._preview_base_url.replace("http://", "ws://", 1).replace(
+            "https://", "wss://", 1
         )
         return f"{base_url}:{VNC_WEBSOCKET_PORT}"
 
     async def cleanup(self) -> None:
         await super().cleanup()
         self._sandboxes.clear()
-
-    @staticmethod
-    def _remove_dir(path: Path) -> None:
-        shutil.rmtree(path, ignore_errors=True)

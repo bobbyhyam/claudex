@@ -48,6 +48,13 @@ class LocalDockerProvider(SandboxProvider):
         self._docker: aiodocker.Docker | None = None
         self._docker_loop: AbstractEventLoop | None = None
 
+    @property
+    def _has_path_routing(self) -> bool:
+        return bool(
+            self.config.traefik_network
+            and urlparse(self.config.preview_base_url).hostname
+        )
+
     async def _get_docker(self) -> aiodocker.Docker:
         loop = asyncio.get_running_loop()
         if self._docker is not None and self._docker_loop is not loop:
@@ -81,13 +88,8 @@ class LocalDockerProvider(SandboxProvider):
             "traefik.enable": "true",
             "traefik.docker.network": self.config.traefik_network,
         }
-        if parsed_base.scheme == "https":
-            use_tls = "true"
-        else:
-            use_tls = "false"
-        all_ports = list(DOCKER_AVAILABLE_PORTS)
-
-        for port in all_ports:
+        use_tls = "true" if parsed_base.scheme == "https" else "false"
+        for port in DOCKER_AVAILABLE_PORTS:
             router_name = f"sandbox-{sandbox_id}-{port}"
             route_prefix = f"/sandbox/{sandbox_id}/{port}"
             middleware_name = f"{router_name}-strip"
@@ -168,7 +170,6 @@ class LocalDockerProvider(SandboxProvider):
         if self.config.pids_limit > 0:
             host_config["PidsLimit"] = self.config.pids_limit
 
-        container_workspace = self.config.user_home
         workspace_mount_dir = f"{self.config.user_home}/workspace"
         if workspace_path:
             workspace_dir = Path(workspace_path).expanduser().resolve()
@@ -180,7 +181,7 @@ class LocalDockerProvider(SandboxProvider):
             "Cmd": ["/bin/bash"],
             "Hostname": "sandbox",
             "User": "user",
-            "WorkingDir": container_workspace,
+            "WorkingDir": self.config.user_home,
             "OpenStdin": True,
             "Tty": True,
             "Labels": labels,
@@ -220,11 +221,7 @@ class LocalDockerProvider(SandboxProvider):
         ports = info.get("NetworkSettings", {}).get("Ports", {}) or {}
         port_map: dict[int, int] = {}
         for container_port, host_bindings in ports.items():
-            if (
-                host_bindings
-                and isinstance(host_bindings, list)
-                and len(host_bindings) > 0
-            ):
+            if host_bindings:
                 host_port = host_bindings[0].get("HostPort")
                 if host_port:
                     internal_port = int(container_port.split("/")[0])
@@ -233,8 +230,7 @@ class LocalDockerProvider(SandboxProvider):
 
     async def _is_container_running(self, container: Any) -> bool:
         info = await container.show()
-        status = info.get("State", {}).get("Status")
-        return isinstance(status, str) and status == DOCKER_STATUS_RUNNING
+        return info.get("State", {}).get("Status") == DOCKER_STATUS_RUNNING
 
     async def _get_container_by_id(self, sandbox_id: str) -> Any | None:
         docker = await self._get_docker()
@@ -271,9 +267,8 @@ class LocalDockerProvider(SandboxProvider):
         container = self._containers.get(sandbox_id)
 
         if not container:
-            try:
-                container = await self._find_container_by_name(sandbox_id)
-            except Exception:
+            container = await self._get_container_by_id(sandbox_id)
+            if not container:
                 return
 
         await self._destroy_container(container)
@@ -291,9 +286,7 @@ class LocalDockerProvider(SandboxProvider):
             connected = await self.connect_sandbox(sandbox_id)
             if not connected:
                 return False
-            container = self._containers.get(sandbox_id)
-            if not container:
-                return False
+            container = self._containers[sandbox_id]
 
         return await self._is_container_running(container)
 
@@ -357,10 +350,7 @@ class LocalDockerProvider(SandboxProvider):
         container = await self._get_container(sandbox_id)
         normalized_path = self.normalize_path(path)
 
-        if isinstance(content, str):
-            content_bytes = content.encode("utf-8")
-        else:
-            content_bytes = content
+        content_bytes = content.encode("utf-8") if isinstance(content, str) else content
 
         tar_stream = io.BytesIO()
         with tarfile.open(fileobj=tar_stream, mode="w") as tar:
@@ -551,10 +541,6 @@ class LocalDockerProvider(SandboxProvider):
 
         port_map = self._port_mappings.get(sandbox_id, {})
         mapped_ports = {p for p in listening_ports if p in port_map}
-        has_path_routing = bool(
-            self.config.traefik_network
-            and urlparse(self.config.preview_base_url).hostname
-        )
 
         return self._build_preview_links(
             listening_ports=mapped_ports,
@@ -564,16 +550,10 @@ class LocalDockerProvider(SandboxProvider):
                         f"{self.config.preview_base_url.rstrip('/')}/sandbox/{sandbox_id}/{port}"
                     )
                 )
-                if has_path_routing
+                if self._has_path_routing
                 else (lambda port: f"{self.config.preview_base_url}:{port_map[port]}")
             ),
             excluded_ports=EXCLUDED_PREVIEW_PORTS,
-        )
-
-    async def _find_container_by_name(self, sandbox_id: str) -> Any:
-        docker = await self._get_docker()
-        return await docker.containers.get(
-            f"{DOCKER_SANDBOX_CONTAINER_PREFIX}{sandbox_id}"
         )
 
     async def _destroy_container(self, container: Any) -> None:
@@ -604,11 +584,7 @@ class LocalDockerProvider(SandboxProvider):
         return container
 
     async def get_ide_url(self, sandbox_id: str) -> str | None:
-        has_path_routing = bool(
-            self.config.traefik_network
-            and urlparse(self.config.preview_base_url).hostname
-        )
-        if has_path_routing:
+        if self._has_path_routing:
             base_url = self.config.preview_base_url.rstrip("/")
             return f"{base_url}/sandbox/{sandbox_id}/{self.config.openvscode_port}/?folder={SANDBOX_HOME_DIR}"
 
@@ -620,11 +596,7 @@ class LocalDockerProvider(SandboxProvider):
         return f"{self.config.preview_base_url}:{host_port}/?folder={SANDBOX_HOME_DIR}"
 
     async def get_vnc_url(self, sandbox_id: str) -> str | None:
-        has_path_routing = bool(
-            self.config.traefik_network
-            and urlparse(self.config.preview_base_url).hostname
-        )
-        if has_path_routing:
+        if self._has_path_routing:
             base_url = (
                 self.config.preview_base_url.rstrip("/")
                 .replace("http://", "ws://", 1)
@@ -637,8 +609,8 @@ class LocalDockerProvider(SandboxProvider):
         host_port = port_map.get(VNC_WEBSOCKET_PORT)
         if not host_port:
             return None
-        base_url = self.config.preview_base_url.replace("http://", "ws://").replace(
-            "https://", "wss://"
+        base_url = self.config.preview_base_url.replace("http://", "ws://", 1).replace(
+            "https://", "wss://", 1
         )
         return f"{base_url}:{host_port}"
 
