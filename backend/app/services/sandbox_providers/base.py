@@ -1,20 +1,12 @@
 import asyncio
 import base64
 import logging
+import posixpath
 import shlex
 from abc import ABC, abstractmethod
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 from typing import Any, Awaitable, Callable, TypeVar
-
-import posixpath
-from tenacity import (
-    AsyncRetrying,
-    before_sleep_log,
-    retry_if_exception,
-    stop_after_attempt,
-    wait_exponential,
-)
 
 from app.constants import (
     CHECKPOINT_BASE_DIR,
@@ -44,27 +36,6 @@ T = TypeVar("T")
 
 LISTENING_PORTS_COMMAND = "ss -tuln | grep LISTEN | awk '{print $5}' | sed 's/.*://g' | grep -E '^[0-9]+$' | sort -u"
 
-MAX_RETRIES = 3
-RETRY_BASE_DELAY = 1.0
-
-
-def is_retryable_error(exception: BaseException) -> bool:
-    error_message = str(exception)
-    return not (
-        "401" in error_message
-        or "403" in error_message
-        or "authentication" in error_message.lower()
-    )
-
-
-RETRY_CONFIG: dict[str, Any] = {
-    "stop": stop_after_attempt(MAX_RETRIES),
-    "wait": wait_exponential(multiplier=RETRY_BASE_DELAY, min=RETRY_BASE_DELAY, max=10),
-    "retry": retry_if_exception(is_retryable_error),
-    "before_sleep": before_sleep_log(logger, logging.WARNING),
-    "reraise": True,
-}
-
 
 class SandboxProvider(ABC):
     _pty_sessions: dict[str, dict[str, Any]]
@@ -73,9 +44,10 @@ class SandboxProvider(ABC):
     def normalize_path(file_path: str, base: str = SANDBOX_HOME_DIR) -> str:
         path = PurePosixPath(file_path)
 
-        if path.is_absolute() and str(path).startswith(base):
-            return posixpath.normpath(str(path))
-        elif path.is_absolute():
+        if path.is_absolute():
+            path_str = str(path)
+            if path_str.startswith(base):
+                return posixpath.normpath(path_str)
             return posixpath.normpath(f"{base}{path}")
         return posixpath.normpath(f"{base}/{path}")
 
@@ -83,9 +55,6 @@ class SandboxProvider(ABC):
     def format_export_command(key: str, value: str) -> str:
         escaped_value = value.replace("'", "'\"'\"'")
         return f"export {key}='{escaped_value}'"
-
-    def _get_system_variables(self) -> list[str]:
-        return SANDBOX_SYSTEM_VARIABLES
 
     @staticmethod
     def _is_binary_file(path: str) -> bool:
@@ -115,20 +84,18 @@ class SandboxProvider(ABC):
     def _parse_listening_ports(stdout: str) -> set[int]:
         return {int(p) for p in stdout.strip().splitlines() if p.isdigit()}
 
+    @staticmethod
     def _build_preview_links(
-        self,
         listening_ports: set[int],
         url_builder: Callable[[int], str],
         excluded_ports: set[int] | None = None,
     ) -> list[PreviewLink]:
         excluded = excluded_ports or set()
-        preview_links: list[PreviewLink] = []
-        for port in listening_ports:
-            if port in excluded:
-                continue
-            preview_url = url_builder(port)
-            preview_links.append(PreviewLink(preview_url=preview_url, port=port))
-        return preview_links
+        return [
+            PreviewLink(preview_url=url_builder(port), port=port)
+            for port in listening_ports
+            if port not in excluded
+        ]
 
     async def _get_latest_checkpoint_dir(self, sandbox_id: str) -> str | None:
         checkpoints = await self.list_checkpoints(sandbox_id)
@@ -136,23 +103,14 @@ class SandboxProvider(ABC):
             return None
         return f"{CHECKPOINT_BASE_DIR}/{checkpoints[0].message_id}"
 
-    async def _cleanup_old_checkpoints(self, sandbox_id: str) -> int:
+    async def _cleanup_old_checkpoints(self, sandbox_id: str) -> None:
         checkpoints = await self.list_checkpoints(sandbox_id)
 
-        if len(checkpoints) <= MAX_CHECKPOINTS_PER_SANDBOX:
-            return 0
-
-        to_delete = checkpoints[MAX_CHECKPOINTS_PER_SANDBOX:]
-        deleted_count = 0
-
-        for checkpoint in to_delete:
+        for checkpoint in checkpoints[MAX_CHECKPOINTS_PER_SANDBOX:]:
             checkpoint_dir = f"{CHECKPOINT_BASE_DIR}/{checkpoint.message_id}"
             await self.execute_command(
                 sandbox_id, f"rm -rf {shlex.quote(checkpoint_dir)}"
             )
-            deleted_count += 1
-
-        return deleted_count
 
     def _get_pty_session(
         self, sandbox_id: str, session_id: str
@@ -162,24 +120,15 @@ class SandboxProvider(ABC):
     def _register_pty_session(
         self, sandbox_id: str, session_id: str, session_data: dict[str, Any]
     ) -> None:
-        if sandbox_id not in self._pty_sessions:
-            self._pty_sessions[sandbox_id] = {}
-        self._pty_sessions[sandbox_id][session_id] = session_data
+        self._pty_sessions.setdefault(sandbox_id, {})[session_id] = session_data
 
     def _cleanup_pty_session_tracking(self, sandbox_id: str, session_id: str) -> None:
         try:
             del self._pty_sessions[sandbox_id][session_id]
             if not self._pty_sessions[sandbox_id]:
                 del self._pty_sessions[sandbox_id]
-        except Exception as e:
-            logger.error("Error cleaning up PTY session %s: %s", session_id, e)
-
-    async def _retry_operation(
-        self, operation: Callable[..., Any], *args: Any, **kwargs: Any
-    ) -> Any:
-        async for attempt in AsyncRetrying(**RETRY_CONFIG):
-            with attempt:
-                return await operation(*args, **kwargs)
+        except KeyError:
+            logger.error("Error cleaning up PTY session %s", session_id)
 
     @abstractmethod
     async def create_sandbox(self, workspace_path: str | None = None) -> str:
@@ -240,12 +189,10 @@ class SandboxProvider(ABC):
     ) -> list[FileMetadata]:
         patterns = excluded_patterns or SANDBOX_EXCLUDED_PATHS
 
-        exclude_conditions = []
-        for pattern in patterns:
-            if pattern.startswith("*."):
-                exclude_conditions.append(f"-not -name '{pattern}'")
-            else:
-                exclude_conditions.append(f"-not -path '{pattern}'")
+        exclude_conditions = [
+            f"-not -name '{p}'" if p.startswith("*.") else f"-not -path '{p}'"
+            for p in patterns
+        ]
 
         exclude_args = " ".join(exclude_conditions)
         find_command = f"find {path} {exclude_args} -printf '%p\t%y\t%s\t%T@\n'"
@@ -253,6 +200,7 @@ class SandboxProvider(ABC):
         result = await self.execute_command(sandbox_id, find_command, timeout=30)
 
         metadata_items = []
+        home_dir_slash = f"{SANDBOX_HOME_DIR}/"
         for line in result.stdout.strip().split("\n"):
             if not line:
                 continue
@@ -261,16 +209,15 @@ class SandboxProvider(ABC):
             if len(parts) < 4:
                 continue
 
-            file_path, file_type, size, mtime = parts[0], parts[1], parts[2], parts[3]
+            file_path, file_type, size, mtime = parts[:4]
 
-            if not file_path or file_path == SANDBOX_HOME_DIR or file_path == "":
+            if not file_path or file_path == SANDBOX_HOME_DIR:
                 continue
 
-            home_dir_slash = f"{SANDBOX_HOME_DIR}/"
             if file_path.startswith(home_dir_slash):
                 file_path = file_path[len(home_dir_slash) :]
-            elif file_path.startswith(SANDBOX_HOME_DIR):
-                file_path = file_path[len(SANDBOX_HOME_DIR) :]
+
+            modified = float(mtime) if mtime.replace(".", "").isdigit() else 0
 
             if file_type == "f":
                 is_binary = (
@@ -283,9 +230,7 @@ class SandboxProvider(ABC):
                         type="file",
                         is_binary=is_binary,
                         size=int(size) if size.isdigit() else 0,
-                        modified=float(mtime)
-                        if mtime.replace(".", "").isdigit()
-                        else 0,
+                        modified=modified,
                     )
                 )
             elif file_type == "d":
@@ -294,9 +239,7 @@ class SandboxProvider(ABC):
                         path=file_path,
                         type="directory",
                         size=0,
-                        modified=float(mtime)
-                        if mtime.replace(".", "").isdigit()
-                        else 0,
+                        modified=modified,
                     )
                 )
 
@@ -361,19 +304,15 @@ class SandboxProvider(ABC):
             for pattern in SANDBOX_RESTORE_EXCLUDE_PATTERNS
         )
 
-        if prev_checkpoint:
-            rsync_cmd = (
-                f"rsync -a --delete "
-                f"--link-dest={shlex.quote(prev_checkpoint)} "
-                f"{exclude_args} "
-                f"{SANDBOX_HOME_DIR}/ {shlex.quote(checkpoint_dir)}/"
-            )
-        else:
-            rsync_cmd = (
-                f"rsync -a --delete "
-                f"{exclude_args} "
-                f"{SANDBOX_HOME_DIR}/ {shlex.quote(checkpoint_dir)}/"
-            )
+        link_dest = (
+            f"--link-dest={shlex.quote(prev_checkpoint)} " if prev_checkpoint else ""
+        )
+        rsync_cmd = (
+            f"rsync -a --delete "
+            f"{link_dest}"
+            f"{exclude_args} "
+            f"{SANDBOX_HOME_DIR}/ {shlex.quote(checkpoint_dir)}/"
+        )
 
         try:
             await self.execute_command(sandbox_id, rsync_cmd)
@@ -438,12 +377,13 @@ class SandboxProvider(ABC):
         )
 
         result = await self.execute_command(sandbox_id, list_cmd)
+        output = result.stdout.strip()
 
-        if not result.stdout.strip():
+        if not output:
             return []
 
         checkpoints = []
-        for line in result.stdout.strip().split("\n"):
+        for line in output.split("\n"):
             if "|" not in line:
                 continue
             parts = line.split("|")
@@ -474,14 +414,12 @@ class SandboxProvider(ABC):
 
         env_lines = result.stdout.strip().split("\n")
         secrets = []
-        system_vars = self._get_system_variables()
-
         for line in env_lines:
             if "=" in line:
                 key, value = line.split("=", 1)
                 value = value.strip('"').strip("'")
 
-                if key not in system_vars:
+                if key not in SANDBOX_SYSTEM_VARIABLES:
                     secrets.append(SecretEntry(key=key, value=value))
 
         return secrets
