@@ -11,9 +11,15 @@ node_modules
 dist
 dist-ssr
 *.local
-storage
+storage/
 
 # Editor directories and files
+.git/
+.github/
+.docker/
+.ruff_cache/
+.pytest_cache/
+.husky/
 .vscode/*
 !.vscode/extensions.json
 .idea

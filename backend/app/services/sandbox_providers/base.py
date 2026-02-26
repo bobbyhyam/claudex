@@ -152,7 +152,9 @@ class SandboxProvider(ABC):
                 patterns.extend([folder, f"{folder}/*", f"*/{folder}", f"*/{folder}/*"])
                 continue
 
-            patterns.extend([normalized, f"*/{normalized}"])
+            patterns.extend(
+                [normalized, f"{normalized}/*", f"*/{normalized}", f"*/{normalized}/*"]
+            )
 
         return list(dict.fromkeys(patterns))
 
