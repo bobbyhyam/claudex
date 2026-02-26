@@ -17,7 +17,7 @@ interface GeneralSettingsTabProps {
   onSecretChange: (field: ApiFieldKey, value: string) => void;
   onToggleVisibility: (field: ApiFieldKey) => void;
   onDeleteAllChats: () => void;
-  onNotificationSoundChange: (enabled: boolean) => void;
+  onNotificationsEnabledChange: (enabled: boolean) => void;
   onAutoCompactDisabledChange: (disabled: boolean) => void;
   onAttributionDisabledChange: (disabled: boolean) => void;
   onSandboxProviderChange: (provider: SandboxProviderType) => void;
@@ -67,7 +67,7 @@ export const GeneralSettingsTab: React.FC<GeneralSettingsTabProps> = ({
   onSecretChange,
   onToggleVisibility,
   onDeleteAllChats,
-  onNotificationSoundChange,
+  onNotificationsEnabledChange,
   onAutoCompactDisabledChange,
   onAttributionDisabledChange,
   onSandboxProviderChange,
@@ -141,16 +141,16 @@ export const GeneralSettingsTab: React.FC<GeneralSettingsTabProps> = ({
         <div className="flex items-start justify-between gap-4 py-3 sm:items-center">
           <div className="min-w-0 flex-1">
             <h3 className="text-sm font-medium text-text-primary dark:text-text-dark-primary">
-              Sound Notification
+              Notifications
             </h3>
             <p className="mt-0.5 text-xs text-text-tertiary dark:text-text-dark-tertiary">
-              Play a sound when the assistant finishes responding.
+              Send notifications for permission requests, questions, and task completion.
             </p>
           </div>
           <Switch
-            checked={settings.notification_sound_enabled ?? true}
-            onCheckedChange={onNotificationSoundChange}
-            aria-label="Sound notification"
+            checked={settings.notifications_enabled ?? true}
+            onCheckedChange={onNotificationsEnabledChange}
+            aria-label="Notifications"
           />
         </div>
         <div className="flex items-center justify-between gap-4 py-3">

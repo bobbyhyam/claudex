@@ -3,6 +3,7 @@ import { permissionService } from '@/services/permissionService';
 import { usePermissionStore } from '@/store/permissionStore';
 import { addResolvedRequestId, isRequestResolved } from '@/utils/permissionStorage';
 import { notifyPermissionRequest } from '@/utils/notifications';
+import { useSettingsQuery } from '@/hooks/queries/useSettingsQueries';
 import type { PermissionRequest } from '@/types/chat.types';
 
 type ApiError = Error & { status?: number };
@@ -23,6 +24,7 @@ function isExpiredRequestError(error: unknown): boolean {
 export function usePermissionRequest(chatId: string | undefined): UsePermissionRequestReturn {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { data: settings } = useSettingsQuery();
 
   const pendingRequests = usePermissionStore((state) => state.pendingRequests);
 
@@ -42,9 +44,11 @@ export function usePermissionRequest(chatId: string | undefined): UsePermissionR
       }
 
       usePermissionStore.getState().setPermissionRequest(chatId, request);
-      void notifyPermissionRequest(request);
+      if (settings?.notifications_enabled ?? true) {
+        void notifyPermissionRequest(request);
+      }
     },
-    [chatId],
+    [chatId, settings?.notifications_enabled],
   );
 
   const handleApprove = useCallback(async () => {

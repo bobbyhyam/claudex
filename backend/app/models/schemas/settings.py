@@ -122,7 +122,7 @@ class UserSettingsBase(BaseModel):
     custom_slash_commands: list[CustomSlashCommand] | None = None
     custom_prompts: list[CustomPrompt] | None = None
     installed_plugins: list[InstalledPluginSchema] | None = None
-    notification_sound_enabled: bool = True
+    notifications_enabled: bool = True
     auto_compact_disabled: bool = False
     attribution_disabled: bool = False
 
