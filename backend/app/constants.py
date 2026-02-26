@@ -86,34 +86,6 @@ SANDBOX_RESTORE_EXCLUDE_PATTERNS: Final[list[str]] = [
     ".nuxt",
 ]
 
-SANDBOX_EXCLUDED_PATHS: Final[list[str]] = [
-    "*/node_modules/*",
-    "*/node_modules",
-    "*/target/*",
-    "*/target",
-    "target/*",
-    "target",
-    "*/backend-sidecar/*",
-    "*/backend-sidecar",
-    "backend-sidecar/*",
-    "backend-sidecar",
-    "*/.*",
-    "*/__pycache__/*",
-    "*/__pycache__",
-    "*.pyc",
-    "*.log",
-    "*/dist/*",
-    "*/dist",
-    "*/build/*",
-    "*/build",
-    "package-lock.json",
-    "*/package-lock.json",
-    "bun.lock",
-    "*/bun.lock",
-    "Library",
-    "Library/*",
-]
-
 SANDBOX_BINARY_EXTENSIONS: Final[set[str]] = {
     "exe",
     "dll",

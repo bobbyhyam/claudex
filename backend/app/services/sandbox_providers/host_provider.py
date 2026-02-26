@@ -26,7 +26,6 @@ from app.constants import (
     SANDBOX_BASHRC_PATH,
     SANDBOX_BINARY_EXTENSIONS,
     SANDBOX_DEFAULT_COMMAND_TIMEOUT,
-    SANDBOX_EXCLUDED_PATHS,
     SANDBOX_HOME_DIR,
     TERMINAL_TYPE,
     VNC_WEBSOCKET_PORT,
@@ -313,7 +312,9 @@ class LocalHostProvider(SandboxProvider):
         excluded_patterns: list[str] | None = None,
     ) -> list[FileMetadata]:
         sandbox_dir = self._resolve_sandbox_dir(sandbox_id)
-        patterns = excluded_patterns or SANDBOX_EXCLUDED_PATHS
+        patterns = list(excluded_patterns or [])
+        patterns.extend(await self._get_gitignore_patterns(sandbox_id))
+        patterns = list(dict.fromkeys(patterns))
         return await asyncio.to_thread(self._walk_files, sandbox_dir, patterns)
 
     @staticmethod

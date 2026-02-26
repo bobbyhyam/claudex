@@ -13,7 +13,6 @@ from app.constants import (
     MAX_CHECKPOINTS_PER_SANDBOX,
     SANDBOX_BASHRC_PATH,
     SANDBOX_BINARY_EXTENSIONS,
-    SANDBOX_EXCLUDED_PATHS,
     SANDBOX_HOME_DIR,
     SANDBOX_RESTORE_EXCLUDE_PATTERNS,
     SANDBOX_SYSTEM_VARIABLES,
@@ -130,6 +129,43 @@ class SandboxProvider(ABC):
         except KeyError:
             logger.error("Error cleaning up PTY session %s", session_id)
 
+    @staticmethod
+    def _build_gitignore_patterns(gitignore_content: str) -> list[str]:
+        patterns: list[str] = []
+        for raw_line in gitignore_content.splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or line.startswith("!"):
+                continue
+
+            normalized = line.lstrip("/")
+            if not normalized:
+                continue
+
+            if normalized.startswith("*."):
+                patterns.append(normalized)
+                continue
+
+            if normalized.endswith("/"):
+                folder = normalized.rstrip("/")
+                if not folder:
+                    continue
+                patterns.extend([folder, f"{folder}/*", f"*/{folder}", f"*/{folder}/*"])
+                continue
+
+            patterns.extend([normalized, f"*/{normalized}"])
+
+        return list(dict.fromkeys(patterns))
+
+    async def _get_gitignore_patterns(self, sandbox_id: str) -> list[str]:
+        result = await self.execute_command(
+            sandbox_id,
+            "if [ -f .gitignore ]; then cat .gitignore; fi",
+            timeout=5,
+        )
+        if not result.stdout:
+            return []
+        return self._build_gitignore_patterns(result.stdout)
+
     @abstractmethod
     async def create_sandbox(self, workspace_path: str | None = None) -> str:
         pass
@@ -187,15 +223,19 @@ class SandboxProvider(ABC):
         path: str = SANDBOX_HOME_DIR,
         excluded_patterns: list[str] | None = None,
     ) -> list[FileMetadata]:
-        patterns = excluded_patterns or SANDBOX_EXCLUDED_PATHS
+        patterns = list(excluded_patterns or [])
+        patterns.extend(await self._get_gitignore_patterns(sandbox_id))
+        patterns = list(dict.fromkeys(patterns))
 
-        exclude_conditions = [
-            f"-not -name '{p}'" if p.startswith("*.") else f"-not -path '{p}'"
-            for p in patterns
-        ]
-
-        exclude_args = " ".join(exclude_conditions)
-        find_command = f"find {path} {exclude_args} -printf '%p\t%y\t%s\t%T@\n'"
+        if patterns:
+            exclude_conditions = [
+                f"-not -name '{p}'" if p.startswith("*.") else f"-not -path '{p}'"
+                for p in patterns
+            ]
+            exclude_args = " ".join(exclude_conditions)
+            find_command = f"find {path} {exclude_args} -printf '%p\t%y\t%s\t%T@\n'"
+        else:
+            find_command = f"find {path} -printf '%p\t%y\t%s\t%T@\n'"
 
         result = await self.execute_command(sandbox_id, find_command, timeout=30)
 
