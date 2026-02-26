@@ -101,7 +101,7 @@ export interface UserSettings {
   custom_skills: CustomSkill[] | null;
   custom_slash_commands: CustomCommand[] | null;
   custom_prompts: CustomPrompt[] | null;
-  notification_sound_enabled?: boolean;
+  notifications_enabled?: boolean;
   auto_compact_disabled?: boolean;
   attribution_disabled?: boolean;
   created_at: string;

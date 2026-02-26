@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import { QueryClient } from '@tanstack/react-query';
 import { StreamingContentAccumulator, type ContentRenderSnapshot } from '@/utils/stream';
-import { playNotificationSound } from '@/utils/audio';
+import { notifyStreamComplete } from '@/utils/notifications';
 import { queryKeys } from '@/hooks/queries/queryKeys';
 import { useSettingsQuery } from '@/hooks/queries/useSettingsQueries';
 import type {
@@ -401,8 +401,8 @@ export function useStreamCallbacks({
       setStreamState('idle');
       setCurrentMessageId(null);
 
-      if (!isCancelled && (settings?.notification_sound_enabled ?? true)) {
-        playNotificationSound();
+      if (!isCancelled && (settings?.notifications_enabled ?? true)) {
+        void notifyStreamComplete();
       }
 
       if (!isCancelled && chatId && currentChat?.sandbox_id) {
@@ -441,7 +441,7 @@ export function useStreamCallbacks({
       setMessages,
       setPendingUserMessageId,
       setStreamState,
-      settings?.notification_sound_enabled,
+      settings?.notifications_enabled,
       updateMessageInCache,
     ],
   );

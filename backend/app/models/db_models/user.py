@@ -105,7 +105,7 @@ class UserSettings(Base):
     custom_prompts: Mapped[list[CustomPromptDict] | None] = mapped_column(
         JSON, nullable=True
     )
-    notification_sound_enabled: Mapped[bool] = mapped_column(
+    notifications_enabled: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default="true", nullable=False
     )
     auto_compact_disabled: Mapped[bool] = mapped_column(

@@ -7,6 +7,7 @@ import {
 import type { PermissionRequest } from '@/types/chat.types';
 import { logger } from '@/utils/logger';
 
+const NOTIFICATION_DURATION_MS = 10_000;
 const NOTIFIED_PERMISSION_REQUESTS = new Set<string>();
 
 function buildPermissionNotification(request: PermissionRequest): { title: string; body: string } {
@@ -39,7 +40,9 @@ async function sendWebNotification(title: string, body: string): Promise<void> {
   }
 
   if (Notification.permission === 'granted') {
-    new Notification(title, { body });
+    const notification = new Notification(title, { body, requireInteraction: true });
+    notification.onclick = () => notification.close();
+    setTimeout(() => notification.close(), NOTIFICATION_DURATION_MS);
   }
 }
 
@@ -51,6 +54,22 @@ async function sendTauriNotification(title: string, body: string): Promise<void>
 
   if (permissionGranted) {
     sendNotification({ title, body });
+  }
+}
+
+export async function notifyStreamComplete(): Promise<void> {
+  const title = 'Task completed';
+  const body = 'The assistant has finished responding.';
+
+  try {
+    if (isTauri()) {
+      await sendTauriNotification(title, body);
+      return;
+    }
+
+    await sendWebNotification(title, body);
+  } catch (error) {
+    logger.debug('Failed to send stream complete notification', 'notifications', error);
   }
 }
 

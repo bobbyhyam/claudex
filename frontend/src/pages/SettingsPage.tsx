@@ -87,7 +87,7 @@ const createFallbackSettings = (): UserSettings => ({
   custom_skills: null,
   custom_slash_commands: null,
   custom_prompts: null,
-  notification_sound_enabled: true,
+  notifications_enabled: true,
   auto_compact_disabled: false,
   attribution_disabled: false,
   created_at: new Date().toISOString(),
@@ -207,7 +207,7 @@ const SettingsPage: React.FC = () => {
         'custom_skills',
         'custom_slash_commands',
         'custom_prompts',
-        'notification_sound_enabled',
+        'notifications_enabled',
         'auto_compact_disabled',
         'attribution_disabled',
       ];
@@ -299,8 +299,8 @@ const SettingsPage: React.FC = () => {
     setIsDeleteAllDialogOpen(true);
   };
 
-  const handleNotificationSoundChange = (enabled: boolean) => {
-    persistSettings((prev) => ({ ...prev, notification_sound_enabled: enabled }));
+  const handleNotificationsEnabledChange = (enabled: boolean) => {
+    persistSettings((prev) => ({ ...prev, notifications_enabled: enabled }));
   };
 
   const handleAutoCompactDisabledChange = (disabled: boolean) => {
@@ -568,7 +568,7 @@ const SettingsPage: React.FC = () => {
                         onSecretChange={handleSecretFieldChange}
                         onToggleVisibility={toggleFieldVisibility}
                         onDeleteAllChats={handleDeleteAllChats}
-                        onNotificationSoundChange={handleNotificationSoundChange}
+                        onNotificationsEnabledChange={handleNotificationsEnabledChange}
                         onAutoCompactDisabledChange={handleAutoCompactDisabledChange}
                         onAttributionDisabledChange={handleAttributionDisabledChange}
                         onSandboxProviderChange={handleSandboxProviderChange}
