@@ -114,6 +114,8 @@ class Settings(BaseSettings):
             if origin not in origins:
                 origins.append(origin)
         self.ALLOWED_ORIGINS = origins
+        if self.HOST_PERMISSION_API_URL == "http://localhost:8080":
+            self.HOST_PERMISSION_API_URL = self.BASE_URL
         return self
 
     @field_validator("SESSION_SECRET_KEY", mode="before")
@@ -186,15 +188,6 @@ class Settings(BaseSettings):
     HOST_PREVIEW_BASE_URL: str = "http://localhost"
     # URL the permission server in host mode uses to reach the API
     HOST_PERMISSION_API_URL: str = "http://localhost:8080"
-
-    @field_validator("HOST_PERMISSION_API_URL", mode="before")
-    @classmethod
-    def set_host_permission_api_url(cls, v: str, info: ValidationInfo) -> str:
-        if v != "http://localhost:8080":
-            return v
-        if info.data.get("DESKTOP_MODE"):
-            return info.data.get("BASE_URL", v)
-        return v
 
     @field_validator("HOST_SANDBOX_BASE_DIR", mode="before")
     @classmethod
