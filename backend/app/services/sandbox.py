@@ -375,10 +375,10 @@ class SandboxService:
                 for entry in skill_zip.namelist():
                     if entry.endswith("/"):
                         continue
-                    content = skill_zip.read(entry)
+                    file_bytes = skill_zip.read(entry)
                     rel = entry[len(prefix) :] if entry.startswith(prefix) else entry
                     remote_path = f"{SANDBOX_CLAUDE_DIR}/skills/{skill_name}/{rel}"
-                    writes.append((remote_path, content))
+                    writes.append((remote_path, file_bytes))
 
         for command in enabled_commands:
             command_name = command["name"]
