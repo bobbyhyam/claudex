@@ -6,6 +6,7 @@ import logging
 import time
 from collections.abc import AsyncIterator
 from functools import partial
+from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -1016,8 +1017,15 @@ class ChatStreamRuntime:
                     stream_result = StreamResult()
                     attachment_base_dir = SANDBOX_HOME_DIR
                     if runtime.chat.sandbox_provider == SandboxProviderType.HOST:
-                        attachment_base_dir = (
-                            runtime.chat.workspace_path or SANDBOX_HOME_DIR
+                        # Files are written to the sandbox home dir
+                        # (/home/user/ → {host_base}/{sandbox_id}/), so
+                        # point Claude at the real host path, not the
+                        # workspace path.
+                        host_base = Path(
+                            settings.get_host_sandbox_base_dir()
+                        ).expanduser().resolve()
+                        attachment_base_dir = str(
+                            host_base / runtime.chat.sandbox_id
                         )
                     stream = ai_service.stream_response(
                         client=session.client,
