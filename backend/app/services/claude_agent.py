@@ -293,6 +293,7 @@ class ClaudeAgentService:
             raise ClaudeAgentException(f"Failed to enhance prompt: {str(e)}") from e
 
     async def generate_title(self, prompt: str, user: User) -> str | None:
+        # Ask Sonnet to produce a short chat title from the first user message.
         user_settings = await UserService(
             session_factory=self.session_factory
         ).get_user_settings(user.id)
