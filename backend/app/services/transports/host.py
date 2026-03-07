@@ -104,8 +104,6 @@ class HostSandboxTransport(BaseSandboxTransport):
         env = {
             **os.environ,
             **envs,
-            "HOME": str(self._home_dir),
-            "USER": requested_user,
             "PATH": f"{HOST_REQUIRED_PATH_PREFIX}:{current_path}",
         }
         env["GIT_CONFIG_GLOBAL"] = settings.GIT_CONFIG_GLOBAL
