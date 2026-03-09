@@ -19,10 +19,27 @@ import { streamService } from '@/services/streamService';
 import type { StreamOptions } from '@/services/streamService';
 import { useUIStore } from '@/store/uiStore';
 
-const STREAM_FLUSH_INTERVAL_MS = 200;
+const STREAM_FLUSH_INTERVAL_MS = 130;
 
 function createEmptyRenderSnapshot(): ContentRenderSnapshot {
   return { events: [] };
+}
+
+function buildProjectionUpdate(
+  streamId: string,
+  accumulator: StreamingContentAccumulator,
+  session: StreamSessionState,
+): (msg: Message) => Message {
+  const nextRender = accumulator.snapshot();
+  const nextText = accumulator.getContentText();
+  const nextSeq = session.lastSeq;
+  return (msg: Message): Message => ({
+    ...msg,
+    content_text: nextText,
+    content_render: nextRender,
+    last_seq: nextSeq,
+    active_stream_id: streamId,
+  });
 }
 
 interface UseStreamCallbacksParams {
@@ -184,16 +201,7 @@ export function useStreamCallbacks({
       const session = streamSessionsRef.current.get(streamId);
       if (!accumulator || !session) return;
 
-      const nextRender = accumulator.snapshot();
-      const nextText = accumulator.getContentText();
-      const nextSeq = session.lastSeq;
-      const update = (message: Message): Message => ({
-        ...message,
-        content_text: nextText,
-        content_render: nextRender,
-        last_seq: nextSeq,
-        active_stream_id: streamId,
-      });
+      const update = buildProjectionUpdate(streamId, accumulator, session);
 
       setMessages((prevMessages) =>
         prevMessages.map((msg) => (msg.id === session.messageId ? update(msg) : msg)),
@@ -214,8 +222,6 @@ export function useStreamCallbacks({
 
       const timer = setTimeout(() => {
         flushTimersRef.current.delete(streamId);
-        // Persist throttled snapshots to cache while streaming so switching chats/views
-        // does not drop the currently accumulated in-memory stream content.
         applyProjection(streamId, { writeToCache: true });
       }, STREAM_FLUSH_INTERVAL_MS);
 
