@@ -7,13 +7,14 @@ import stat as stat_module
 import zipfile
 from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import TypeVar, cast
+from typing import Any, TypeVar, cast
 
 from app.core.config import get_settings
 from app.models.types import (
     CustomAgentDict,
     CustomSkillDict,
     CustomSlashCommandDict,
+    InstalledPluginDict,
     YamlMetadata,
 )
 from app.utils.yaml_parser import YAMLParser
@@ -54,17 +55,20 @@ class ClaudeFolderSync:
             return {}
 
     @staticmethod
-    def read_installed_plugins() -> dict | None:
+    def read_installed_plugins() -> dict[str, Any] | None:
         if not INSTALLED_PLUGINS_JSON.is_file():
             return None
         try:
-            return json.loads(INSTALLED_PLUGINS_JSON.read_text(encoding="utf-8"))
+            result: dict[str, Any] = json.loads(
+                INSTALLED_PLUGINS_JSON.read_text(encoding="utf-8")
+            )
+            return result
         except (json.JSONDecodeError, OSError):
             return None
 
     @staticmethod
     def get_active_plugin_paths(
-        data: dict | None = None,
+        data: dict[str, Any] | None = None,
     ) -> list[Path]:
         if data is None:
             data = ClaudeFolderSync.read_installed_plugins()
@@ -83,9 +87,28 @@ class ClaudeFolderSync:
         return paths
 
     @staticmethod
+    def get_cli_installed_plugins() -> list[InstalledPluginDict]:
+        data = ClaudeFolderSync.read_installed_plugins()
+        if not data:
+            return []
+        results: list[InstalledPluginDict] = []
+        for key, entries in data.get("plugins", {}).items():
+            plugin_name = key.split("@", 1)[0] if "@" in key else key
+            entry = entries[0] if entries else {}
+            results.append(
+                {
+                    "name": plugin_name,
+                    "version": entry.get("version"),
+                    "installed_at": entry.get("installedAt", ""),
+                    "components": [],
+                }
+            )
+        return results
+
+    @staticmethod
     def rewrite_installed_plugins_for_container(
         container_cache_dir: str,
-        data: dict | None = None,
+        data: dict[str, Any] | None = None,
     ) -> str | None:
         if data is None:
             data = ClaudeFolderSync.read_installed_plugins()

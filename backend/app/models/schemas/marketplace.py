@@ -12,6 +12,7 @@ class MarketplacePlugin(BaseModel):
     description: str = Field(..., description="What the plugin does")
     category: str = Field(..., description="Plugin category")
     source: str = Field(..., description="Source path in repository")
+    marketplace: str = Field("", description="Marketplace this plugin belongs to")
     version: str | None = Field(None, description="Plugin version")
     author: MarketplaceAuthor | None = None
     homepage: str | None = None

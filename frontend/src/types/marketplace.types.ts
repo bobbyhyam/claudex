@@ -9,6 +9,7 @@ export interface MarketplacePlugin {
   description: string;
   category: string;
   source: string;
+  marketplace: string;
   version?: string;
   author?: MarketplaceAuthor;
   homepage?: string;

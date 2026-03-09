@@ -38,28 +38,32 @@ function InstalledComponentRow({
   componentId,
   isSelectedForUninstall,
   onToggle,
+  readOnly,
 }: {
   comp: ComponentEntry;
   componentId: string;
   isSelectedForUninstall: boolean;
   onToggle: (id: string) => void;
+  readOnly?: boolean;
 }) {
   const Icon = COMPONENT_ICONS[comp.type];
 
   return (
     <label
-      className={`flex cursor-pointer items-center justify-between rounded-lg border p-3 transition-colors ${
-        isSelectedForUninstall
-          ? 'border-error-500 bg-error-50 dark:border-error-400 dark:bg-error-900/20'
-          : 'border-success-200 bg-success-50 dark:border-success-800 dark:bg-success-900/20'
+      className={`flex items-center justify-between rounded-lg border p-3 transition-colors ${
+        readOnly
+          ? 'border-border/50 bg-surface-active dark:border-border-dark/50 dark:bg-surface-dark-active'
+          : isSelectedForUninstall
+            ? 'cursor-pointer border-border-hover bg-surface-hover dark:border-border-dark-hover dark:bg-surface-dark-hover'
+            : 'cursor-pointer border-border/50 bg-surface-active dark:border-border-dark/50 dark:bg-surface-dark-active'
       }`}
     >
       <div className="flex items-center gap-3">
         <Icon
           className={`h-4 w-4 ${
-            isSelectedForUninstall
-              ? 'text-error-600 dark:text-error-400'
-              : 'text-success-600 dark:text-success-400'
+            isSelectedForUninstall && !readOnly
+              ? 'text-text-tertiary dark:text-text-dark-tertiary'
+              : 'text-text-secondary dark:text-text-dark-secondary'
           }`}
         />
         <div>
@@ -69,14 +73,21 @@ function InstalledComponentRow({
           <span className="ml-2 text-xs capitalize text-text-tertiary dark:text-text-dark-tertiary">
             {comp.type}
           </span>
+          {readOnly && (
+            <span className="ml-2 text-2xs text-text-quaternary dark:text-text-dark-quaternary">
+              installed via CLI
+            </span>
+          )}
         </div>
       </div>
-      <input
-        type="checkbox"
-        checked={isSelectedForUninstall}
-        onChange={() => onToggle(componentId)}
-        className="h-4 w-4 rounded border-border text-error-600 focus:ring-error-500 dark:border-border-dark"
-      />
+      {!readOnly && (
+        <input
+          type="checkbox"
+          checked={isSelectedForUninstall}
+          onChange={() => onToggle(componentId)}
+          className="h-4 w-4 rounded border-border text-text-primary accent-text-primary focus:ring-text-quaternary/30 dark:border-border-dark"
+        />
+      )}
     </label>
   );
 }
@@ -192,6 +203,8 @@ export const PluginDetailModal: React.FC<PluginDetailModalProps> = ({
   const uninstallMutation = useUninstallComponentsMutation();
 
   const installedPlugin = installedPlugins.find((p) => p.name === plugin?.name);
+  const cliInstalledWithoutComponents =
+    installedPlugin !== undefined && (installedPlugin.components ?? []).length === 0;
   const installedComponents = new Set(installedPlugin?.components ?? []);
 
   useEffect(() => {
@@ -232,26 +245,23 @@ export const PluginDetailModal: React.FC<PluginDetailModalProps> = ({
     setSelectedForUninstall(newSelected);
   };
 
+  const isComponentInstalled = (c: ComponentEntry) =>
+    cliInstalledWithoutComponents || installedComponents.has(`${c.type}:${c.name}`);
+
   const selectAll = () => {
     const notInstalled = allComponents
-      .map((c) => `${c.type}:${c.name}`)
-      .filter((id) => !installedComponents.has(id));
+      .filter((c) => !isComponentInstalled(c))
+      .map((c) => `${c.type}:${c.name}`);
     setSelectedComponents(new Set(notInstalled));
   };
 
   const selectAllForUninstall = () => {
-    const installed = allComponents
-      .map((c) => `${c.type}:${c.name}`)
-      .filter((id) => installedComponents.has(id));
+    const installed = allComponents.filter(isComponentInstalled).map((c) => `${c.type}:${c.name}`);
     setSelectedForUninstall(new Set(installed));
   };
 
-  const hasUninstalledComponents = allComponents.some(
-    (c) => !installedComponents.has(`${c.type}:${c.name}`),
-  );
-  const hasInstalledComponents = allComponents.some((c) =>
-    installedComponents.has(`${c.type}:${c.name}`),
-  );
+  const hasUninstalledComponents = allComponents.some((c) => !isComponentInstalled(c));
+  const hasInstalledComponents = allComponents.some(isComponentInstalled);
 
   const handleInstall = async () => {
     if (selectedComponents.size === 0) {
@@ -342,10 +352,10 @@ export const PluginDetailModal: React.FC<PluginDetailModalProps> = ({
                   Components
                 </h3>
                 <div className="flex gap-3">
-                  {hasInstalledComponents && (
+                  {hasInstalledComponents && !cliInstalledWithoutComponents && (
                     <button
                       onClick={selectAllForUninstall}
-                      className="text-xs text-error-600 hover:text-error-700 dark:text-error-400 dark:hover:text-error-300"
+                      className="text-xs text-text-tertiary hover:text-text-primary dark:text-text-dark-tertiary dark:hover:text-text-dark-primary"
                     >
                       Select all installed
                     </button>
@@ -364,7 +374,7 @@ export const PluginDetailModal: React.FC<PluginDetailModalProps> = ({
               <div className="mb-4 space-y-2">
                 {allComponents.map((comp) => {
                   const componentId = `${comp.type}:${comp.name}`;
-                  const isInstalled = installedComponents.has(componentId);
+                  const isInstalled = isComponentInstalled(comp);
 
                   return isInstalled ? (
                     <InstalledComponentRow
@@ -373,6 +383,7 @@ export const PluginDetailModal: React.FC<PluginDetailModalProps> = ({
                       componentId={componentId}
                       isSelectedForUninstall={selectedForUninstall.has(componentId)}
                       onToggle={toggleUninstall}
+                      readOnly={cliInstalledWithoutComponents}
                     />
                   ) : (
                     <AvailableComponentRow

@@ -3,13 +3,9 @@ import json
 import logging
 import re
 import zipfile
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, cast
 
-import httpx
-
-from app.core.config import get_settings
 from app.models.types import (
     MarketplaceAuthorDict,
     MarketplacePluginDict,
@@ -18,31 +14,26 @@ from app.models.types import (
 )
 from app.services.exceptions import ErrorCode, MarketplaceException
 
-settings = get_settings()
 logger = logging.getLogger(__name__)
 
-CATALOG_URL = "https://raw.githubusercontent.com/anthropics/claude-plugins-official/main/.claude-plugin/marketplace.json"
-REPO_RAW_BASE = (
-    "https://raw.githubusercontent.com/anthropics/claude-plugins-official/main"
-)
-GITHUB_API_BASE = (
-    "https://api.github.com/repos/anthropics/claude-plugins-official/contents"
-)
-CACHE_TTL_SECONDS = 3600
-MAX_RECURSION_DEPTH = 5
+CLAUDE_PLUGINS_DIR = Path.home() / ".claude" / "plugins"
+KNOWN_MARKETPLACES_JSON = CLAUDE_PLUGINS_DIR / "known_marketplaces.json"
 MAX_SKILL_FILES = 50
 SAFE_PATH_SEGMENT = re.compile(r"^[a-zA-Z0-9_\-\.]+$")
 
 
 class MarketplaceService:
-    _catalog_cache: list[MarketplacePluginDict] | None = None
-    _catalog_cached_at: datetime | None = None
-
-    def __init__(self, github_token: str | None = None) -> None:
-        self.cache_path = Path(settings.STORAGE_PATH) / "marketplace_cache"
-        self.cache_path.mkdir(parents=True, exist_ok=True)
-        self._cache_file = self.cache_path / "catalog.json"
-        self._github_token = github_token
+    @staticmethod
+    def _read_known_marketplaces() -> dict[str, Any]:
+        if not KNOWN_MARKETPLACES_JSON.is_file():
+            return {}
+        try:
+            result: dict[str, Any] = json.loads(
+                KNOWN_MARKETPLACES_JSON.read_text(encoding="utf-8")
+            )
+            return result
+        except (json.JSONDecodeError, OSError):
+            return {}
 
     @staticmethod
     def _validate_path_segment(segment: str) -> bool:
@@ -55,24 +46,6 @@ class MarketplaceService:
         return True
 
     @staticmethod
-    def _validate_source_path(source: str) -> str:
-        if source.startswith("./"):
-            source = source[2:]
-        if source.startswith("/"):
-            raise MarketplaceException(
-                "Invalid source path: absolute paths not allowed",
-                error_code=ErrorCode.MARKETPLACE_INSTALL_FAILED,
-            )
-        segments = source.split("/")
-        for seg in segments:
-            if seg and not MarketplaceService._validate_path_segment(seg):
-                raise MarketplaceException(
-                    f"Invalid path segment: {seg}",
-                    error_code=ErrorCode.MARKETPLACE_INSTALL_FAILED,
-                )
-        return source
-
-    @staticmethod
     def _validate_component_name(name: str) -> str:
         if not MarketplaceService._validate_path_segment(name):
             raise MarketplaceException(
@@ -81,115 +54,19 @@ class MarketplaceService:
             )
         return name
 
-    def _get_github_api_headers(self) -> dict[str, str]:
-        headers = {"Accept": "application/vnd.github.v3+json"}
-        if self._github_token:
-            headers["Authorization"] = f"Bearer {self._github_token}"
-        return headers
-
-    def _check_rate_limit_error(self, response: httpx.Response) -> None:
-        if response.status_code == 403:
-            remaining = response.headers.get("X-RateLimit-Remaining", "")
-            if remaining == "0":
-                reset_timestamp = response.headers.get("X-RateLimit-Reset", "")
-                msg = (
-                    "GitHub API rate limit exceeded. "
-                    "Configure your GitHub Personal Access Token in Settings."
-                )
-                if reset_timestamp:
-                    try:
-                        reset_time = datetime.fromtimestamp(
-                            int(reset_timestamp), tz=timezone.utc
-                        )
-                        minutes_until_reset = max(
-                            1,
-                            int(
-                                (
-                                    reset_time - datetime.now(timezone.utc)
-                                ).total_seconds()
-                                / 60
-                            ),
-                        )
-                        msg += f" Resets in ~{minutes_until_reset} min."
-                    except (ValueError, TypeError, OverflowError):
-                        pass
-                raise MarketplaceException(
-                    msg,
-                    error_code=ErrorCode.MARKETPLACE_FETCH_FAILED,
-                    status_code=429,
-                )
-
-    async def fetch_catalog(
-        self, force_refresh: bool = False
-    ) -> list[MarketplacePluginDict]:
-        if not force_refresh and self._is_cache_valid():
-            return MarketplaceService._catalog_cache or []
-
-        if not force_refresh and self._load_disk_cache():
-            return MarketplaceService._catalog_cache or []
-
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            try:
-                response = await client.get(CATALOG_URL)
-                response.raise_for_status()
-                data = response.json()
-            except httpx.HTTPError as e:
-                logger.error("Failed to fetch marketplace catalog: %s", e)
-                raise MarketplaceException(
-                    f"Failed to fetch marketplace catalog: {e}",
-                    error_code=ErrorCode.MARKETPLACE_FETCH_FAILED,
-                )
-
-        all_plugins: list[MarketplacePluginDict] = []
-        for plugin in data.get("plugins", []):
-            all_plugins.append(self._normalize_plugin(plugin))
-
-        plugins = [
-            p
-            for p in all_plugins
-            if not p["source"].startswith("external:")
-            and not p.get("has_lsp_only", False)
-        ]
-
-        MarketplaceService._catalog_cache = plugins
-        MarketplaceService._catalog_cached_at = datetime.now(timezone.utc)
-        self._save_disk_cache(plugins)
-        return plugins
-
-    def _is_cache_valid(self) -> bool:
-        cls = MarketplaceService
-        if cls._catalog_cache is None or cls._catalog_cached_at is None:
-            return False
-        expiry = cls._catalog_cached_at + timedelta(seconds=CACHE_TTL_SECONDS)
-        return datetime.now(timezone.utc) < expiry
-
-    def _load_disk_cache(self) -> bool:
-        cls = MarketplaceService
-        try:
-            if not self._cache_file.exists():
-                return False
-            stat = self._cache_file.stat()
-            cache_age = datetime.now(timezone.utc) - datetime.fromtimestamp(
-                stat.st_mtime, tz=timezone.utc
-            )
-            if cache_age.total_seconds() > CACHE_TTL_SECONDS:
-                return False
-            with open(self._cache_file, "r") as f:
-                cls._catalog_cache = json.load(f)
-            cls._catalog_cached_at = datetime.fromtimestamp(
-                stat.st_mtime, tz=timezone.utc
-            )
-            return True
-        except (OSError, json.JSONDecodeError) as e:
-            logger.warning("Failed to load disk cache: %s", e)
-            return False
-
-    def _save_disk_cache(self, plugins: list[MarketplacePluginDict]) -> None:
-        try:
-            with open(self._cache_file, "w") as f:
-                json.dump(plugins, f)
-        except OSError as e:
-            logger.warning("Failed to save disk cache: %s", e)
+    def _resolve_local_plugin_dir(self, source: str, marketplace: str) -> Path | None:
+        known = self._read_known_marketplaces()
+        marketplace_info = known.get(marketplace)
+        if not marketplace_info:
+            return None
+        install_location = marketplace_info.get("installLocation")
+        if not install_location:
+            return None
+        clean_source = source.lstrip("./")
+        local_dir = Path(install_location) / clean_source
+        if local_dir.is_dir():
+            return local_dir
+        return None
 
     def _normalize_plugin(self, raw: dict[str, Any]) -> MarketplacePluginDict:
         author_raw = raw.get("author") or raw.get("owner")
@@ -219,11 +96,41 @@ class MarketplaceService:
             "description": raw.get("description", ""),
             "category": raw.get("category", "other"),
             "source": source,
+            "marketplace": "",
             "version": raw.get("version"),
             "author": author,
             "homepage": raw.get("homepage"),
             "has_lsp_only": has_lsp_only,
         }
+
+    async def fetch_catalog(self) -> list[MarketplacePluginDict]:
+        known = self._read_known_marketplaces()
+        if not known:
+            return []
+        all_plugins: list[MarketplacePluginDict] = []
+        for marketplace_name, info in known.items():
+            install_location = info.get("installLocation")
+            if not install_location:
+                continue
+            catalog_path = (
+                Path(install_location) / ".claude-plugin" / "marketplace.json"
+            )
+            if not catalog_path.is_file():
+                continue
+            try:
+                data = json.loads(catalog_path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                continue
+            for plugin in data.get("plugins", []):
+                normalized = self._normalize_plugin(plugin)
+                normalized["marketplace"] = marketplace_name
+                all_plugins.append(normalized)
+        return [
+            p
+            for p in all_plugins
+            if not p["source"].startswith("external:")
+            and not p.get("has_lsp_only", False)
+        ]
 
     async def get_plugin_details(self, plugin_name: str) -> PluginDetailsDict:
         catalog = await self.fetch_catalog()
@@ -237,33 +144,27 @@ class MarketplaceService:
             )
 
         source = plugin.get("source", "")
-        if source.startswith("external:"):
-            return {
-                "name": plugin["name"],
-                "description": plugin.get("description", ""),
-                "category": plugin.get("category", "other"),
-                "source": source,
-                "version": plugin.get("version"),
-                "author": plugin.get("author"),
-                "homepage": plugin.get("homepage"),
-                "readme": None,
-                "components": {
-                    "agents": [],
-                    "commands": [],
-                    "skills": [],
-                    "mcp_servers": [],
-                },
-            }
+        marketplace = plugin.get("marketplace", "")
 
-        source = self._validate_source_path(source)
-        readme = await self._fetch_readme(source)
-        components = await self._discover_components(source)
+        readme: str | None = None
+        components: PluginComponentsDict = {
+            "agents": [],
+            "commands": [],
+            "skills": [],
+            "mcp_servers": [],
+        }
+        if not source.startswith("external:"):
+            local_dir = self._resolve_local_plugin_dir(source, marketplace)
+            if local_dir:
+                readme = self._read_local_readme(local_dir)
+                components = self._discover_components_local(local_dir)
 
         return {
             "name": plugin["name"],
             "description": plugin.get("description", ""),
             "category": plugin.get("category", "other"),
-            "source": plugin.get("source", ""),
+            "source": source,
+            "marketplace": marketplace,
             "version": plugin.get("version"),
             "author": plugin.get("author"),
             "homepage": plugin.get("homepage"),
@@ -271,18 +172,107 @@ class MarketplaceService:
             "components": components,
         }
 
-    async def _fetch_readme(self, source: str) -> str | None:
-        url = f"{REPO_RAW_BASE}/{source}/README.md"
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            try:
-                response = await client.get(url)
-                if response.status_code == 200:
-                    return str(response.text)
-            except httpx.HTTPError:
-                pass
-        return None
+    async def download_agent(
+        self, source: str, agent_name: str, marketplace: str = ""
+    ) -> bytes:
+        agent_name = self._validate_component_name(agent_name)
+        return self._read_local_file(source, marketplace, f"agents/{agent_name}.md")
 
-    async def _discover_components(self, source: str) -> PluginComponentsDict:
+    async def download_command(
+        self, source: str, command_name: str, marketplace: str = ""
+    ) -> bytes:
+        command_name = self._validate_component_name(command_name)
+        return self._read_local_file(source, marketplace, f"commands/{command_name}.md")
+
+    async def download_skill_as_zip(
+        self, source: str, skill_name: str, marketplace: str = ""
+    ) -> bytes:
+        skill_name = self._validate_component_name(skill_name)
+        local_dir = self._resolve_local_plugin_dir(source, marketplace)
+        if not local_dir:
+            raise MarketplaceException(
+                f"Plugin directory not found for {source}",
+                error_code=ErrorCode.MARKETPLACE_INSTALL_FAILED,
+            )
+        skill_dir = local_dir / "skills" / skill_name
+        if not skill_dir.is_dir():
+            raise MarketplaceException(
+                f"Skill '{skill_name}' directory not found",
+                error_code=ErrorCode.MARKETPLACE_INSTALL_FAILED,
+            )
+        zip_buffer = io.BytesIO()
+        file_count = 0
+        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+            for f in skill_dir.rglob("*"):
+                if not f.is_file():
+                    continue
+                if file_count >= MAX_SKILL_FILES:
+                    logger.warning("Max skill file count (%d) reached", MAX_SKILL_FILES)
+                    break
+                rel = str(f.relative_to(skill_dir))
+                try:
+                    zf.writestr(rel, f.read_bytes())
+                    file_count += 1
+                except OSError as e:
+                    logger.warning("Failed to read %s: %s", f, e)
+        if file_count == 0:
+            raise MarketplaceException(
+                f"Skill '{skill_name}' has no files",
+                error_code=ErrorCode.MARKETPLACE_INSTALL_FAILED,
+            )
+        zip_buffer.seek(0)
+        return zip_buffer.read()
+
+    async def download_mcp_config(
+        self, source: str, marketplace: str = ""
+    ) -> dict[str, Any] | None:
+        local_dir = self._resolve_local_plugin_dir(source, marketplace)
+        if not local_dir:
+            return None
+        mcp_path = local_dir / ".mcp.json"
+        if not mcp_path.is_file():
+            return None
+        try:
+            return cast(
+                dict[str, Any],
+                json.loads(mcp_path.read_text(encoding="utf-8")),
+            )
+        except (json.JSONDecodeError, OSError):
+            return None
+
+    def _read_local_file(self, source: str, marketplace: str, rel_path: str) -> bytes:
+        local_dir = self._resolve_local_plugin_dir(source, marketplace)
+        if not local_dir:
+            raise MarketplaceException(
+                f"Plugin directory not found for {source}",
+                error_code=ErrorCode.MARKETPLACE_INSTALL_FAILED,
+            )
+        file_path = local_dir / rel_path
+        if not file_path.is_file():
+            raise MarketplaceException(
+                f"File not found: {rel_path}",
+                error_code=ErrorCode.MARKETPLACE_INSTALL_FAILED,
+            )
+        try:
+            return file_path.read_bytes()
+        except OSError as e:
+            raise MarketplaceException(
+                f"Failed to read {rel_path}: {e}",
+                error_code=ErrorCode.MARKETPLACE_INSTALL_FAILED,
+            ) from e
+
+    @staticmethod
+    def _read_local_readme(plugin_dir: Path) -> str | None:
+        readme = plugin_dir / "README.md"
+        if not readme.is_file():
+            return None
+        try:
+            return readme.read_text(encoding="utf-8")
+        except OSError:
+            return None
+
+    @staticmethod
+    def _discover_components_local(plugin_dir: Path) -> PluginComponentsDict:
         components: PluginComponentsDict = {
             "agents": [],
             "commands": [],
@@ -290,187 +280,36 @@ class MarketplaceService:
             "mcp_servers": [],
         }
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            agents = await self._list_directory(client, f"{source}/agents")
-            components["agents"] = [
-                f.replace(".md", "") for f in agents if f.endswith(".md")
-            ]
+        agents_dir = plugin_dir / "agents"
+        if agents_dir.is_dir():
+            components["agents"] = [f.stem for f in agents_dir.glob("*.md")]
 
-            commands = await self._list_directory(client, f"{source}/commands")
-            components["commands"] = [
-                f.replace(".md", "") for f in commands if f.endswith(".md")
-            ]
+        commands_dir = plugin_dir / "commands"
+        if commands_dir.is_dir():
+            components["commands"] = [f.stem for f in commands_dir.glob("*.md")]
 
-            skills_dirs = await self._list_directory(client, f"{source}/skills")
+        skills_dir = plugin_dir / "skills"
+        if skills_dir.is_dir():
             components["skills"] = [
-                d
-                for d in skills_dirs
-                if not d.startswith(".") and self._validate_path_segment(d)
+                d.name
+                for d in skills_dir.iterdir()
+                if d.is_dir()
+                and not d.name.startswith(".")
+                and MarketplaceService._validate_path_segment(d.name)
             ]
 
-            mcp_servers = await self._fetch_mcp_config(client, source)
-            components["mcp_servers"] = mcp_servers
+        mcp_path = plugin_dir / ".mcp.json"
+        if mcp_path.is_file():
+            try:
+                data = json.loads(mcp_path.read_text(encoding="utf-8"))
+                servers = data.get("mcpServers") or data
+                components["mcp_servers"] = [
+                    k
+                    for k in servers.keys()
+                    if MarketplaceService._validate_path_segment(k)
+                    and isinstance(servers[k], dict)
+                ]
+            except (json.JSONDecodeError, OSError):
+                pass
 
         return components
-
-    async def _list_directory(self, client: httpx.AsyncClient, path: str) -> list[str]:
-        url = f"{GITHUB_API_BASE}/{path}"
-        try:
-            response = await client.get(url, headers=self._get_github_api_headers())
-            self._check_rate_limit_error(response)
-            if response.status_code != 200:
-                return []
-            data = response.json()
-            if isinstance(data, list):
-                return [
-                    item["name"]
-                    for item in data
-                    if self._validate_path_segment(item.get("name", ""))
-                ]
-        except httpx.HTTPError:
-            pass
-        return []
-
-    async def _fetch_mcp_config(
-        self, client: httpx.AsyncClient, source: str
-    ) -> list[str]:
-        url = f"{REPO_RAW_BASE}/{source}/.mcp.json"
-        try:
-            response = await client.get(url)
-            if response.status_code != 200:
-                return []
-            data = response.json()
-            if not isinstance(data, dict):
-                return []
-            servers = data.get("mcpServers") or data
-            return [
-                k
-                for k in servers.keys()
-                if self._validate_path_segment(k) and isinstance(servers[k], dict)
-            ]
-        except (httpx.HTTPError, ValueError):
-            pass
-        return []
-
-    async def download_agent(self, source: str, agent_name: str) -> bytes:
-        source = self._validate_source_path(source)
-        agent_name = self._validate_component_name(agent_name)
-        return await self._download_file(f"{source}/agents/{agent_name}.md")
-
-    async def download_command(self, source: str, command_name: str) -> bytes:
-        source = self._validate_source_path(source)
-        command_name = self._validate_component_name(command_name)
-        return await self._download_file(f"{source}/commands/{command_name}.md")
-
-    async def download_skill_as_zip(self, source: str, skill_name: str) -> bytes:
-        source = self._validate_source_path(source)
-        skill_name = self._validate_component_name(skill_name)
-
-        skill_path = f"{source}/skills/{skill_name}"
-        zip_buffer = io.BytesIO()
-
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            files = await self._collect_files_recursive(client, skill_path, depth=0)
-
-            if not files:
-                raise MarketplaceException(
-                    f"Skill '{skill_name}' has no files",
-                    error_code=ErrorCode.MARKETPLACE_INSTALL_FAILED,
-                )
-
-            failed_files: list[str] = []
-            with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-                for file_path in files:
-                    url = f"{REPO_RAW_BASE}/{file_path}"
-                    try:
-                        response = await client.get(url)
-                        response.raise_for_status()
-                        relative = file_path.replace(f"{skill_path}/", "")
-                        zf.writestr(relative, response.content)
-                    except httpx.HTTPError as e:
-                        failed_files.append(file_path)
-                        logger.warning("Failed to download %s: %s", file_path, e)
-
-            if failed_files:
-                raise MarketplaceException(
-                    f"Failed to download {len(failed_files)} of {len(files)} files",
-                    error_code=ErrorCode.MARKETPLACE_INSTALL_FAILED,
-                    details={
-                        "failed_count": str(len(failed_files)),
-                        "failed_files": ", ".join(failed_files[:10]),
-                    },
-                )
-
-        zip_buffer.seek(0)
-        return zip_buffer.read()
-
-    async def _collect_files_recursive(
-        self,
-        client: httpx.AsyncClient,
-        path: str,
-        depth: int,
-        total_count: list[int] | None = None,
-    ) -> list[str]:
-        if total_count is None:
-            total_count = [0]
-
-        if depth > MAX_RECURSION_DEPTH:
-            logger.warning("Max recursion depth reached for %s", path)
-            return []
-
-        if total_count[0] >= MAX_SKILL_FILES:
-            return []
-
-        files: list[str] = []
-        url = f"{GITHUB_API_BASE}/{path}"
-        try:
-            response = await client.get(url, headers=self._get_github_api_headers())
-            self._check_rate_limit_error(response)
-            if response.status_code != 200:
-                return []
-            data = response.json()
-            if not isinstance(data, list):
-                return []
-            for item in data:
-                if total_count[0] >= MAX_SKILL_FILES:
-                    logger.warning("Max total file count (%d) reached", MAX_SKILL_FILES)
-                    break
-                name = item.get("name", "")
-                if not self._validate_path_segment(name):
-                    continue
-                if item["type"] == "file":
-                    files.append(item["path"])
-                    total_count[0] += 1
-                elif item["type"] == "dir":
-                    sub_files = await self._collect_files_recursive(
-                        client, item["path"], depth + 1, total_count
-                    )
-                    files.extend(sub_files)
-        except httpx.HTTPError:
-            pass
-        return files
-
-    async def download_mcp_config(self, source: str) -> dict[str, Any] | None:
-        source = self._validate_source_path(source)
-        url = f"{REPO_RAW_BASE}/{source}/.mcp.json"
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            try:
-                response = await client.get(url)
-                if response.status_code == 200:
-                    return cast(dict[str, Any], response.json())
-            except (httpx.HTTPError, ValueError):
-                pass
-        return None
-
-    async def _download_file(self, path: str) -> bytes:
-        url = f"{REPO_RAW_BASE}/{path}"
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            try:
-                response = await client.get(url)
-                response.raise_for_status()
-                return bytes(response.content)
-            except httpx.HTTPError as e:
-                raise MarketplaceException(
-                    f"Failed to download {path}: {e}",
-                    error_code=ErrorCode.MARKETPLACE_INSTALL_FAILED,
-                )

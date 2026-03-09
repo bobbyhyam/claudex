@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -38,6 +38,7 @@ from app.models.types import (
     InstalledPluginDict,
 )
 from app.services.agent import AgentService
+from app.services.claude_folder_sync import ClaudeFolderSync
 from app.services.command import CommandService
 from app.services.exceptions import (
     MarketplaceException,
@@ -53,11 +54,10 @@ router = APIRouter()
 
 @router.get("/catalog", response_model=list[MarketplacePlugin])
 async def get_catalog(
-    force_refresh: bool = Query(False, description="Force refresh catalog cache"),
     marketplace_service: MarketplaceService = Depends(get_marketplace_service),
 ) -> list[MarketplacePlugin]:
     try:
-        plugins = await marketplace_service.fetch_catalog(force_refresh=force_refresh)
+        plugins = await marketplace_service.fetch_catalog()
         return [MarketplacePlugin(**p) for p in plugins]
     except MarketplaceException as e:
         raise HTTPException(status_code=e.status_code, detail=str(e))
@@ -106,7 +106,7 @@ async def install_plugin_components(
     try:
         result = await installer_service.install_components(
             user_id=str(current_user.id),
-            plugin_name=request.plugin_name,
+            details=details,
             components=request.components,
             current_agents=current_agents,
             current_commands=current_commands,
@@ -180,6 +180,10 @@ async def get_installed_plugins(
     user_settings = await load_user_settings_or_404(user_service, current_user.id, db)
 
     installed: list[InstalledPluginDict] = list(user_settings.installed_plugins or [])
+
+    for cli_plugin in ClaudeFolderSync.get_cli_installed_plugins():
+        append_named_item_if_missing(installed, cli_plugin)
+
     return [InstalledPlugin(**p) for p in installed]
 
 

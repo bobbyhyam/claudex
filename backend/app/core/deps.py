@@ -69,16 +69,12 @@ async def get_github_token(
         return None
 
 
-async def get_marketplace_service(
-    github_token: str | None = Depends(get_github_token),
-) -> MarketplaceService:
-    return MarketplaceService(github_token=github_token)
+def get_marketplace_service() -> MarketplaceService:
+    return MarketplaceService()
 
 
-async def get_plugin_installer_service(
-    github_token: str | None = Depends(get_github_token),
-) -> PluginInstallerService:
-    return PluginInstallerService(github_token=github_token)
+def get_plugin_installer_service() -> PluginInstallerService:
+    return PluginInstallerService()
 
 
 def get_scheduler_service() -> SchedulerService:

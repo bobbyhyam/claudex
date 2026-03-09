@@ -103,6 +103,7 @@ class MarketplacePluginDict(TypedDict, total=False):
     description: str
     category: str
     source: str
+    marketplace: str
     version: str | None
     author: MarketplaceAuthorDict | None
     homepage: str | None
@@ -121,6 +122,7 @@ class PluginDetailsDict(TypedDict, total=False):
     description: str
     category: str
     source: str
+    marketplace: str
     version: str | None
     author: MarketplaceAuthorDict | None
     homepage: str | None
