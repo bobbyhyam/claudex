@@ -22,20 +22,6 @@ class TestGetCatalog:
         plugin_names = [p["name"] for p in data]
         assert TEST_PLUGIN in plugin_names
 
-    async def test_get_catalog_force_refresh(
-        self,
-        marketplace_client: AsyncClient,
-    ) -> None:
-        response = await marketplace_client.get(
-            "/api/v1/marketplace/catalog",
-            params={"force_refresh": True},
-        )
-
-        assert response.status_code == 200
-        data = response.json()
-        assert isinstance(data, list)
-        assert len(data) > 0
-
     async def test_get_catalog_returns_correct_schema(
         self,
         marketplace_client: AsyncClient,
@@ -50,6 +36,7 @@ class TestGetCatalog:
             assert "description" in plugin
             assert "category" in plugin
             assert "source" in plugin
+            assert "marketplace" in plugin
 
 
 class TestGetPluginDetails:

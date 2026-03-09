@@ -10,10 +10,9 @@ import type {
   UninstallResponse,
 } from '@/types/marketplace.types';
 
-async function getCatalog(forceRefresh = false): Promise<MarketplacePlugin[]> {
+async function getCatalog(): Promise<MarketplacePlugin[]> {
   return withAuth(async () => {
-    const params = forceRefresh ? '?force_refresh=true' : '';
-    const response = await apiClient.get<MarketplacePlugin[]>(`/marketplace/catalog${params}`);
+    const response = await apiClient.get<MarketplacePlugin[]>('/marketplace/catalog');
     return response ?? [];
   });
 }

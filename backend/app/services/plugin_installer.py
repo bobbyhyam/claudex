@@ -15,6 +15,7 @@ from app.models.types import (
     CustomSlashCommandDict,
     InstalledPluginDict,
     PluginComponentsDict,
+    PluginDetailsDict,
 )
 from app.services.agent import AgentService
 from app.services.command import CommandService
@@ -38,8 +39,8 @@ class InstallResult:
 
 
 class PluginInstallerService:
-    def __init__(self, github_token: str | None = None) -> None:
-        self.marketplace = MarketplaceService(github_token=github_token)
+    def __init__(self) -> None:
+        self.marketplace = MarketplaceService()
         self.skill_service = SkillService()
         self.agent_service = AgentService()
         self.command_service = CommandService()
@@ -47,15 +48,15 @@ class PluginInstallerService:
     async def install_components(
         self,
         user_id: str,
-        plugin_name: str,
+        details: PluginDetailsDict,
         components: list[str],
         current_agents: list[CustomAgentDict],
         current_commands: list[CustomSlashCommandDict],
         current_skills: list[CustomSkillDict],
         current_mcps: list[CustomMcpDict],
     ) -> InstallResult:
-        details = await self.marketplace.get_plugin_details(plugin_name)
         source = details.get("source", "")
+        marketplace = details.get("marketplace", "")
         available_components = details.get("components", {})
 
         installed: list[str] = []
@@ -94,27 +95,29 @@ class PluginInstallerService:
             try:
                 if comp_type == "agent":
                     agent = await self._install_agent(
-                        user_id, source, comp_name, current_agents
+                        user_id, source, comp_name, current_agents, marketplace
                     )
                     agent["name"] = comp_name
                     new_agents.append(agent)
                     installed.append(component)
                 elif comp_type == "command":
                     cmd = await self._install_command(
-                        user_id, source, comp_name, current_commands
+                        user_id, source, comp_name, current_commands, marketplace
                     )
                     cmd["name"] = comp_name
                     new_commands.append(cmd)
                     installed.append(component)
                 elif comp_type == "skill":
                     skill = await self._install_skill(
-                        user_id, source, comp_name, current_skills
+                        user_id, source, comp_name, current_skills, marketplace
                     )
                     skill["name"] = comp_name
                     new_skills.append(skill)
                     installed.append(component)
                 elif comp_type == "mcp":
-                    mcp = await self._install_mcp(source, comp_name, current_mcps)
+                    mcp = await self._install_mcp(
+                        source, comp_name, current_mcps, marketplace
+                    )
                     if mcp:
                         mcp["name"] = comp_name
                         new_mcps.append(mcp)
@@ -180,8 +183,9 @@ class PluginInstallerService:
         source: str,
         agent_name: str,
         current_agents: list[CustomAgentDict],
+        marketplace: str = "",
     ) -> CustomAgentDict:
-        content = await self.marketplace.download_agent(source, agent_name)
+        content = await self.marketplace.download_agent(source, agent_name, marketplace)
         file = self._create_upload_file(f"{agent_name}.md", content)
         return await self.agent_service.upload(user_id, file, current_agents)
 
@@ -191,8 +195,11 @@ class PluginInstallerService:
         source: str,
         command_name: str,
         current_commands: list[CustomSlashCommandDict],
+        marketplace: str = "",
     ) -> CustomSlashCommandDict:
-        content = await self.marketplace.download_command(source, command_name)
+        content = await self.marketplace.download_command(
+            source, command_name, marketplace
+        )
         file = self._create_upload_file(f"{command_name}.md", content)
         return await self.command_service.upload(user_id, file, current_commands)
 
@@ -202,8 +209,11 @@ class PluginInstallerService:
         source: str,
         skill_name: str,
         current_skills: list[CustomSkillDict],
+        marketplace: str = "",
     ) -> CustomSkillDict:
-        zip_content = await self.marketplace.download_skill_as_zip(source, skill_name)
+        zip_content = await self.marketplace.download_skill_as_zip(
+            source, skill_name, marketplace
+        )
         file = self._create_upload_file(f"{skill_name}.zip", zip_content)
         return await self.skill_service.upload(user_id, file, current_skills)
 
@@ -212,8 +222,9 @@ class PluginInstallerService:
         source: str,
         mcp_name: str,
         current_mcps: list[CustomMcpDict],
+        marketplace: str = "",
     ) -> CustomMcpDict | None:
-        config = await self.marketplace.download_mcp_config(source)
+        config = await self.marketplace.download_mcp_config(source, marketplace)
         if not config:
             return None
 

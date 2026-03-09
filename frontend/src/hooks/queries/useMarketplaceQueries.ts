@@ -11,10 +11,10 @@ import type {
 } from '@/types/marketplace.types';
 import { queryKeys } from './queryKeys';
 
-export const useMarketplaceCatalogQuery = (forceRefresh = false) => {
+export const useMarketplaceCatalogQuery = () => {
   return useQuery<MarketplacePlugin[]>({
     queryKey: queryKeys.marketplace.catalog,
-    queryFn: () => marketplaceService.getCatalog(forceRefresh),
+    queryFn: () => marketplaceService.getCatalog(),
     staleTime: 5 * 60 * 1000,
   });
 };
@@ -31,6 +31,7 @@ export const useInstalledPluginsQuery = () => {
   return useQuery<InstalledPlugin[]>({
     queryKey: queryKeys.marketplace.installed,
     queryFn: () => marketplaceService.getInstalledPlugins(),
+    staleTime: 5 * 60 * 1000,
   });
 };
 
@@ -62,7 +63,7 @@ export const useRefreshCatalogMutation = () => {
   const queryClient = useQueryClient();
 
   return useMutation<MarketplacePlugin[], Error>({
-    mutationFn: () => marketplaceService.getCatalog(true),
+    mutationFn: () => marketplaceService.getCatalog(),
     onSuccess: (data) => {
       queryClient.setQueryData(queryKeys.marketplace.catalog, data);
     },
