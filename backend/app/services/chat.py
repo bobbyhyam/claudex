@@ -428,9 +428,9 @@ class ChatService(BaseDbService[Chat]):
 
     @staticmethod
     def _build_stream_sse_event(
-        # Single source of truth for the SSE envelope shape sent to the frontend —
-        # every stream event (backlog replay, live Redis, errors) goes through here
-        # so the client always receives a consistent {id, event, data} structure.
+        # Canonical builder for the SSE envelope shape sent to the frontend.
+        # The live-Redis path in _stream_live_redis_events constructs the same
+        # {id, event, data} shape directly from pre-serialized envelope JSON.
         *,
         chat_id: UUID,
         message_id: UUID,
@@ -439,18 +439,17 @@ class ChatService(BaseDbService[Chat]):
         kind: str,
         payload: dict[str, Any],
     ) -> dict[str, Any]:
-        envelope = StreamEnvelope.build(
-            chat_id=chat_id,
-            message_id=message_id,
-            stream_id=stream_id,
-            seq=seq,
-            kind=kind,
-            payload=payload,
-        )
         return {
             "id": str(seq),
             "event": StreamEventKind.STREAM.value,
-            "data": json.dumps(envelope, ensure_ascii=False),
+            "data": StreamEnvelope.serialize(
+                chat_id=chat_id,
+                message_id=message_id,
+                stream_id=stream_id,
+                seq=seq,
+                kind=kind,
+                payload=payload,
+            ),
         }
 
     async def _build_stream_error_event(
@@ -512,37 +511,54 @@ class ChatService(BaseDbService[Chat]):
         last_seq: int,
         live_pubsub: CachePubSub,
     ) -> AsyncIterator[dict[str, Any]]:
-        # Real-time leg of the SSE connection: after the backlog replay catches
-        # the client up, this loop waits for Redis pub/sub notifications and
-        # reads new events from the DB. Terminates when a terminal event
-        # (complete/cancelled/error) is encountered.
+        # Real-time leg of the SSE connection: events are published as full
+        # envelopes on the Redis channel so we can yield them directly without
+        # a DB round-trip.
         while True:
             message = await live_pubsub.get_message(
                 ignore_subscribe_messages=True, timeout=1.0
             )
-            if not message:
-                continue
-            if message.get("type") != "message":
+            if not message or message.get("type") != "message":
                 continue
 
-            live_events = await self.message_service.get_chat_events_after_seq(
-                chat_id=chat_id,
-                after_seq=last_seq,
-                limit=5000,
-            )
-            for event in live_events:
-                yield self._build_stream_sse_event(
-                    chat_id=event.chat_id,
-                    message_id=event.message_id,
-                    stream_id=event.stream_id,
-                    seq=int(event.seq),
-                    kind=event.event_type,
-                    payload=event.render_payload,
-                )
-                last_seq = int(event.seq)
+            raw = message.get("data")
+            if not raw:
+                continue
 
-                if event.event_type in TERMINAL_STREAM_EVENT_TYPES:
-                    return
+            try:
+                envelope = json.loads(raw)
+            except (json.JSONDecodeError, TypeError):
+                logger.warning("Malformed Redis stream message for chat %s", chat_id)
+                continue
+
+            if not isinstance(envelope, dict) or "seq" not in envelope:
+                logger.warning("Redis stream message missing seq for chat %s", chat_id)
+                continue
+
+            seq = int(envelope["seq"])
+            if seq <= last_seq:
+                continue
+
+            # Gap detected — a pub/sub message was missed. Fall back to DB
+            # to recover the skipped events before yielding this one.
+            if seq > last_seq + 1:
+                async for event in self._replay_stream_backlog(chat_id, last_seq):
+                    yield event
+                    last_seq = int(event["id"])
+                if last_seq >= seq:
+                    if envelope.get("kind") in TERMINAL_STREAM_EVENT_TYPES:
+                        return
+                    continue
+
+            yield {
+                "id": str(seq),
+                "event": StreamEventKind.STREAM.value,
+                "data": raw,
+            }
+            last_seq = seq
+
+            if envelope.get("kind") in TERMINAL_STREAM_EVENT_TYPES:
+                return
 
     async def _get_active_stream_targets(
         self, chat_id: UUID

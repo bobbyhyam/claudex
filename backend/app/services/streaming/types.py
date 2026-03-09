@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass, field
 from hashlib import sha256
@@ -133,6 +134,28 @@ class StreamEnvelope:
             "kind": kind,
             "payload": payload or {},
         }
+
+    @staticmethod
+    def serialize(
+        *,
+        chat_id: UUID,
+        message_id: UUID,
+        stream_id: UUID,
+        seq: int,
+        kind: str,
+        payload: dict[str, Any] | None = None,
+    ) -> str:
+        return json.dumps(
+            StreamEnvelope.build(
+                chat_id=chat_id,
+                message_id=message_id,
+                stream_id=stream_id,
+                seq=seq,
+                kind=kind,
+                payload=payload,
+            ),
+            ensure_ascii=False,
+        )
 
     @staticmethod
     def sanitize_payload(value: Any) -> Any:

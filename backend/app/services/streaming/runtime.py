@@ -309,7 +309,7 @@ class ChatStreamRuntime:
             audit_payload=audit,
         )
         self.last_seq = seq
-        await self._signal_redis()
+        await self._publish_to_redis([self._serialize_envelope(seq, kind, payload)])
         return seq
 
     async def _flush_event_buffer(self) -> None:
@@ -325,20 +325,36 @@ class ChatStreamRuntime:
         self._event_buffer = []
         self.last_seq = seq
 
-    async def _signal_redis(self) -> None:
-        if not self.cache:
+        start_seq = seq - len(batch) + 1
+        redis_events = [
+            self._serialize_envelope(start_seq + i, kind, payload)
+            for i, (kind, payload, _audit) in enumerate(batch)
+        ]
+        await self._publish_to_redis(redis_events)
+
+    def _serialize_envelope(self, seq: int, kind: str, payload: dict[str, Any]) -> str:
+        return StreamEnvelope.serialize(
+            chat_id=self.chat.id,
+            message_id=UUID(self.assistant_message_id),
+            stream_id=self.stream_id,
+            seq=seq,
+            kind=kind,
+            payload=payload,
+        )
+
+    async def _publish_to_redis(self, events: list[str]) -> None:
+        if not self.cache or not events:
             return
-        try:
-            await self.cache.publish(
-                REDIS_KEY_CHAT_STREAM_LIVE.format(chat_id=self.chat_id),
-                "flush",
-            )
-        except CacheError as exc:
-            logger.warning(
-                "Failed to publish Redis signal for chat %s: %s",
-                self.chat_id,
-                exc,
-            )
+        channel = REDIS_KEY_CHAT_STREAM_LIVE.format(chat_id=self.chat_id)
+        for raw in events:
+            try:
+                await self.cache.publish(channel, raw)
+            except CacheError as exc:
+                logger.warning(
+                    "Failed to publish event for chat %s: %s",
+                    self.chat_id,
+                    exc,
+                )
 
     async def _flush_snapshot(self, *, force: bool) -> None:
         if not self.assistant_message_id:
@@ -358,7 +374,6 @@ class ChatStreamRuntime:
             last_seq=self.last_seq,
             active_stream_id=self.stream_id,
         )
-        await self._signal_redis()
         self.pending_since_flush = 0
         self.last_flush_at = time.monotonic()
 
